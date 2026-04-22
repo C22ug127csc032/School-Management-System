@@ -1,31 +1,32 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext.jsx';
+import { useAuth } from '../../context/AuthContext';
+import { getLoginPathForRole } from '../../utils/authRedirect';
 import {
-  FiAlertTriangle,
-  FiBookOpen,
+  FiBook,
   FiCalendar,
+  FiClock,
   FiCreditCard,
+  FiDollarSign,
   FiFileText,
-  FiGrid,
   FiHome,
   FiLogOut,
   FiMenu,
   FiUser,
   FiX,
-} from 'react-icons/fi';
+} from '../common/icons';
 
 const NAV = [
-  { to: '/student', label: 'Dashboard', icon: FiHome, exact: true },
-  { to: '/student/profile', label: 'My Profile', icon: FiUser },
-  { to: '/student/fees', label: 'Fees', icon: FiCreditCard },
-  { to: '/student/attendance', label: 'Attendance', icon: FiCalendar },
-  { to: '/student/timetable', label: 'Timetable', icon: FiGrid },
-  { to: '/student/exams', label: 'Exams', icon: FiGrid },
-  { to: '/student/homework', label: 'Homework', icon: FiBookOpen },
-  { to: '/student/circulars', label: 'Circulars', icon: FiFileText },
-  { to: '/student/library', label: 'Library', icon: FiBookOpen },
-  { to: '/student/leave', label: 'Leave', icon: FiCalendar },
+  { to: '/parent', label: 'Dashboard', icon: FiHome, exact: true },
+  { to: '/parent/student', label: 'My Child', icon: FiUser },
+  { to: '/parent/fees', label: 'Fees', icon: FiCreditCard },
+  { to: '/parent/payments', label: 'Payments', icon: FiCreditCard },
+  { to: '/parent/ledger', label: 'Ledger', icon: FiBook },
+  { to: '/parent/wallet', label: 'Wallet', icon: FiDollarSign },
+  { to: '/parent/leave', label: 'Leave', icon: FiCalendar },
+  { to: '/parent/outpass', label: 'Outpass', icon: FiLogOut },
+  { to: '/parent/checkin', label: 'Check-In History', icon: FiClock },
+  { to: '/parent/circulars', label: 'Circulars', icon: FiFileText },
 ];
 
 const matchesPath = (pathname, item) => {
@@ -33,21 +34,11 @@ const matchesPath = (pathname, item) => {
   return pathname === item.to || pathname.startsWith(`${item.to}/`);
 };
 
-export default function StudentLayout() {
+export default function ParentLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    if (user?.isFirstLogin && location.pathname !== '/student/set-password') {
-      navigate('/student/set-password', { replace: true });
-    }
-  }, [user, location.pathname, navigate]);
-
-  if (user?.isFirstLogin && location.pathname !== '/student/set-password') {
-    return null;
-  }
 
   const activeItem = useMemo(
     () => NAV.find(item => matchesPath(location.pathname, item)) || NAV[0],
@@ -56,7 +47,7 @@ export default function StudentLayout() {
 
   const handleLogout = () => {
     logout();
-    navigate('/login/student');
+    navigate(getLoginPathForRole(user?.role));
   };
 
   const sidebar = (
@@ -64,11 +55,11 @@ export default function StudentLayout() {
       <div className="portal-sidebar-brand">
         <div className="portal-collapse-row">
           <div className="flex h-11 w-11 items-center justify-center border border-white/10 bg-white/10 text-lg font-bold text-white">
-            S
+            P
           </div>
           <div className="portal-expand-copy min-w-0">
-            <p className="truncate text-sm font-semibold text-white">Student Portal</p>
-            <p className="portal-sidebar-copy">Academic Self Service</p>
+            <p className="truncate text-sm font-semibold text-white">Parent Portal</p>
+            <p className="portal-sidebar-copy">Family Access Desk</p>
           </div>
         </div>
       </div>
@@ -81,18 +72,8 @@ export default function StudentLayout() {
               key={item.to}
               to={item.to}
               end={item.exact}
-              className={({ isActive }) => [
-                'portal-nav-link',
-                user?.isFirstLogin ? 'pointer-events-none opacity-40' : '',
-                isActive ? 'portal-nav-link-active' : '',
-              ].join(' ')}
-              onClick={event => {
-                if (user?.isFirstLogin) {
-                  event.preventDefault();
-                  return;
-                }
-                setMobileOpen(false);
-              }}
+              className={({ isActive }) => ['portal-nav-link', isActive ? 'portal-nav-link-active' : ''].join(' ')}
+              onClick={() => setMobileOpen(false)}
             >
               <item.icon className="shrink-0 text-base" />
               <span className="portal-expand-label truncate">{item.label}</span>
@@ -102,7 +83,12 @@ export default function StudentLayout() {
       </nav>
 
       <div className="border-t border-white/10 px-4 py-4">
-        <button type="button" onClick={handleLogout} className="portal-logout-button w-full" title="Logout">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="portal-logout-button w-full"
+          title="Logout"
+        >
           <FiLogOut className="shrink-0 text-base" />
           <span className="portal-expand-label text-sm font-semibold">Logout</span>
         </button>
@@ -138,7 +124,7 @@ export default function StudentLayout() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="portal-topbar mx-3 mt-3 flex flex-wrap items-center gap-3 px-4 py-3 sm:mx-4 md:mx-6">
+        <header className="portal-topbar mx-3 mt-3 flex items-center gap-3 px-4 py-3 sm:mx-4 md:mx-6">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
@@ -148,27 +134,18 @@ export default function StudentLayout() {
           </button>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-700">Student Portal</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-700">Parent Portal</p>
             <h1 className="truncate text-base font-semibold text-text-primary">{activeItem.label}</h1>
-            <p className="hidden text-xs text-text-secondary sm:block">Academic self-service and student record access</p>
+            <p className="hidden text-xs text-text-secondary sm:block">Family dashboard and student service access</p>
           </div>
 
           <div className="ml-auto flex items-center gap-2">
-            <span className="portal-role-chip hidden sm:inline-flex">Student</span>
+            <span className="portal-role-chip hidden sm:inline-flex">Parent</span>
             <div className="hidden text-right lg:block">
               <p className="text-sm font-semibold text-text-primary">{user?.name}</p>
-              <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Self Service</p>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Family Access</p>
             </div>
           </div>
-
-          {user?.isFirstLogin ? (
-            <div className="basis-full border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              <span className="inline-flex items-center gap-2 font-medium">
-                <FiAlertTriangle className="shrink-0" />
-                Set your password to continue using the portal.
-              </span>
-            </div>
-          ) : null}
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 md:p-6">

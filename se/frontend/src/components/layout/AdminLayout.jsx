@@ -111,17 +111,20 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [openGroup, setOpenGroup] = useState(null);
+  const [openGroups, setOpenGroups] = useState({});
 
   useEffect(() => {
-    for (const entry of NAV) {
-      if (entry.type !== 'group') continue;
-      const hasActiveChild = entry.children?.some(child => matchPath(location.pathname, child.to));
-      if (hasActiveChild) {
-        setOpenGroup(entry.key);
-        return;
-      }
-    }
+    setOpenGroups(current => {
+      const next = { ...current };
+      NAV.forEach(entry => {
+        if (entry.type !== 'group') return;
+        const hasActiveChild = entry.children?.some(child => matchPath(location.pathname, child.to));
+        if (!(entry.key in next) || hasActiveChild) {
+          next[entry.key] = hasActiveChild || Boolean(next[entry.key]);
+        }
+      });
+      return next;
+    });
   }, [location.pathname]);
 
   const pageMeta = useMemo(() => derivePageMeta(location.pathname, user?.role), [location.pathname, user?.role]);
@@ -155,73 +158,65 @@ export default function AdminLayout() {
         isActive ? (nested ? 'portal-nav-sublink-active' : 'portal-nav-link-active') : '',
       ].join(' ')}
     >
-      <item.icon className="shrink-0 text-lg" />
-      <span className="truncate">{item.label}</span>
+      <item.icon className="shrink-0 text-base" />
+      <span className="portal-expand-label truncate">{item.label}</span>
     </NavLink>
   );
 
   const renderSidebar = () => (
     <div className="portal-sidebar">
       <div className="portal-sidebar-brand">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-lg text-white shadow-lg">
+        <div className="portal-collapse-row">
+          <div className="flex h-11 w-11 items-center justify-center border border-white/10 bg-white/10 text-lg font-bold text-white">
             <FiLayers />
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-base font-black tracking-tight text-white">School ERP</p>
-            <p className="portal-sidebar-copy">Staff Command Center</p>
+          <div className="portal-expand-copy min-w-0">
+            <p className="truncate text-sm font-semibold text-white">School ERP</p>
+            <p className="portal-sidebar-copy">Administration Panel</p>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-5">
-        <div className="space-y-1.5">
+      <div className="portal-nav-section-label portal-expand-copy">Navigation</div>
+      <nav className="portal-sidebar-scroll flex-1 overflow-y-auto px-0 py-3">
+        <div className="space-y-1">
           {navGroups.map(entry => {
             if (entry.type === 'link') return renderLink(entry);
 
-            const isOpen = openGroup === entry.key;
+            const isOpen = Boolean(openGroups[entry.key]);
             const isActive = entry.children.some(child => matchPath(location.pathname, child.to));
 
             return (
               <div key={entry.key}>
                 <button
                   type="button"
-                  onClick={() => setOpenGroup(current => current === entry.key ? null : entry.key)}
-                  className={`portal-nav-group-btn ${isOpen || isActive ? 'bg-white/10' : ''}`}
+                  onClick={() => setOpenGroups(current => ({ ...current, [entry.key]: !current[entry.key] }))}
+                  className={[
+                    'portal-nav-link w-full justify-between',
+                    isActive ? 'portal-nav-link-active' : '',
+                  ].join(' ')}
                 >
-                  <div className="flex items-center gap-3">
-                    <entry.icon className="text-lg" />
-                    <span>{entry.label}</span>
-                  </div>
-                  <FiChevronRight className={`text-base text-white/60 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                  <span className="flex min-w-0 items-center gap-0">
+                    <entry.icon className="shrink-0 text-base" />
+                    <span className="portal-expand-label truncate">{entry.label}</span>
+                  </span>
+                  <FiChevronRight className={`portal-expand-chevron shrink-0 text-sm transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                 </button>
-                {isOpen && (
-                  <div className="mt-1 space-y-1">
+                {isOpen ? (
+                  <div className="portal-nav-group-children space-y-1 py-1">
                     {entry.children.map(child => renderLink(child, true))}
                   </div>
-                )}
+                ) : null}
               </div>
             );
           })}
         </div>
       </nav>
 
-      <div className="mt-auto border-t border-white/10 px-4 py-4">
-        <div className="mb-4 flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-sm font-bold text-white">
-            {user?.name?.charAt(0)?.toUpperCase() || 'S'}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-white">{user?.name}</p>
-            <p className="truncate text-[11px] uppercase tracking-[0.14em] text-white/55">{user?.role?.replace(/_/g, ' ')}</p>
-          </div>
-          <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/70">
-            {academicYear}
-          </span>
-        </div>
-        <button type="button" onClick={handleLogout} className="portal-logout-btn">
-          <FiLogOut />
-          Logout
+      <div className="border-t border-white/10 px-4 py-4">
+        <button type="button" onClick={handleLogout} className="portal-logout-button w-full" title="Logout">
+          <FiLogOut className="shrink-0 text-base" />
+          <span className="portal-expand-label text-sm font-semibold">Logout</span>
         </button>
       </div>
     </div>
@@ -229,54 +224,62 @@ export default function AdminLayout() {
 
   return (
     <div className="app-shell flex h-screen overflow-hidden">
-      <aside className="hidden h-screen w-80 shrink-0 lg:block">
+      {mobileOpen ? (
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-950/55 xl:hidden"
+          aria-label="Close menu"
+        />
+      ) : null}
+
+      <aside className="portal-desktop-sidebar group/sidebar hidden h-screen shrink-0 xl:block">
+        {renderSidebar()}
+      </aside>
+
+      <aside className={`fixed inset-y-0 left-0 z-40 h-screen w-72 bg-sidebar transition-transform duration-200 xl:hidden ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center border border-white/10 bg-white/10 text-white"
+          aria-label="Close menu"
+        >
+          <FiX />
+        </button>
         {renderSidebar()}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="portal-topbar lg:px-8">
-          <button type="button" onClick={() => setMobileOpen(true)} className="btn-icon lg:hidden">
+        <header className="portal-topbar mx-3 mt-3 flex flex-wrap items-center gap-3 px-4 py-3 sm:mx-4 md:mx-6">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            className="flex h-10 w-10 items-center justify-center border border-border bg-white text-text-secondary transition-colors hover:border-primary-700 hover:text-primary-700 xl:hidden"
+          >
             <FiMenu />
           </button>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">{pageMeta.section}</p>
-            <div className="mt-1 flex flex-wrap items-end gap-3">
-              <h1 className="text-2xl font-black tracking-tight text-slate-900">{pageMeta.title}</h1>
-              <p className="pb-0.5 text-sm font-medium text-slate-500">{pageMeta.subtitle}</p>
-            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-700">Administration Portal</p>
+            <h1 className="truncate text-base font-semibold text-text-primary">{pageMeta.title}</h1>
+            <p className="hidden text-xs text-text-secondary sm:block">{pageMeta.subtitle}</p>
           </div>
 
-          {isDashboardPage && (
-            <div className="hidden items-center gap-3 lg:flex">
-              <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-2 shadow-sm">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Academic Year</p>
-                <p className="mt-1 text-sm font-semibold text-slate-800">{academicYear}</p>
-              </div>
-              <div className="portal-user-avatar">
-                {user?.name?.charAt(0)?.toUpperCase() || 'S'}
-              </div>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="portal-role-chip hidden sm:inline-flex">{user?.role?.replace(/_/g, ' ') || 'Staff'}</span>
+            <div className="hidden text-right lg:block">
+              <p className="text-sm font-semibold text-text-primary">{user?.name}</p>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-text-secondary">Academic Year {academicYear}</p>
             </div>
-          )}
+            {isDashboardPage ? (
+              <div className="portal-user-avatar">{user?.name?.charAt(0)?.toUpperCase() || 'S'}</div>
+            ) : null}
+          </div>
         </header>
 
-        {mobileOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-            <div className="relative h-full max-w-xs">
-              <button type="button" onClick={() => setMobileOpen(false)} className="absolute right-4 top-4 z-10 btn-icon">
-                <FiX />
-              </button>
-              {renderSidebar()}
-            </div>
-          </div>
-        )}
-
-        <main className="portal-main">
-          <div className="portal-main-inner">
-            <div className="float-in">
-              <Outlet />
-            </div>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <div className="float-in">
+            <Outlet />
           </div>
         </main>
       </div>

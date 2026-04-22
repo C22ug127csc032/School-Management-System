@@ -1,31 +1,29 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext.jsx';
+import { useAuth } from '../../context/AuthContext';
+import { getLoginPathForRole } from '../../utils/authRedirect';
 import {
   FiAlertTriangle,
   FiBookOpen,
   FiCalendar,
   FiCreditCard,
   FiFileText,
-  FiGrid,
   FiHome,
   FiLogOut,
   FiMenu,
   FiUser,
   FiX,
-} from 'react-icons/fi';
+} from '../common/icons';
 
 const NAV = [
   { to: '/student', label: 'Dashboard', icon: FiHome, exact: true },
-  { to: '/student/profile', label: 'My Profile', icon: FiUser },
-  { to: '/student/fees', label: 'Fees', icon: FiCreditCard },
-  { to: '/student/attendance', label: 'Attendance', icon: FiCalendar },
-  { to: '/student/timetable', label: 'Timetable', icon: FiGrid },
-  { to: '/student/exams', label: 'Exams', icon: FiGrid },
-  { to: '/student/homework', label: 'Homework', icon: FiBookOpen },
-  { to: '/student/circulars', label: 'Circulars', icon: FiFileText },
-  { to: '/student/library', label: 'Library', icon: FiBookOpen },
+  { to: '/student/fees', label: 'My Fees', icon: FiCreditCard },
+  { to: '/student/ledger', label: 'Ledger', icon: FiBookOpen },
+  { to: '/student/wallet', label: 'Wallet', icon: FiCreditCard },
   { to: '/student/leave', label: 'Leave', icon: FiCalendar },
+  { to: '/student/outpass', label: 'Outpass', icon: FiLogOut },
+  { to: '/student/circulars', label: 'Circulars', icon: FiFileText },
+  { to: '/student/profile', label: 'My Profile', icon: FiUser },
 ];
 
 const matchesPath = (pathname, item) => {
@@ -56,7 +54,7 @@ export default function StudentLayout() {
 
   const handleLogout = () => {
     logout();
-    navigate('/login/student');
+    navigate(getLoginPathForRole(user?.role));
   };
 
   const sidebar = (
@@ -102,7 +100,12 @@ export default function StudentLayout() {
       </nav>
 
       <div className="border-t border-white/10 px-4 py-4">
-        <button type="button" onClick={handleLogout} className="portal-logout-button w-full" title="Logout">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="portal-logout-button w-full"
+          title="Logout"
+        >
           <FiLogOut className="shrink-0 text-base" />
           <span className="portal-expand-label text-sm font-semibold">Logout</span>
         </button>

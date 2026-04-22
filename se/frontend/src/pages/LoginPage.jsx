@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext.jsx';
-import { FiEye, FiEyeOff, FiMail, FiLock, FiGrid, FiUser, FiUsers } from 'react-icons/fi';
+import AuthSplitLayout from '../components/common/AuthSplitLayout.jsx';
+import { FiEye, FiEyeOff, FiGrid, FiLock, FiMail, FiUser, FiUsers } from 'react-icons/fi';
 
 const ROLE_ROUTES = {
   super_admin: '/admin',
@@ -19,29 +20,45 @@ const ROLE_ROUTES = {
 
 const PORTAL_CONFIG = {
   admin: {
-    title: 'School ERP System',
-    subtitle: 'Administrative and Staff Portal',
+    badge: 'School ERP Access',
+    panelTitle: 'Sign In',
+    panelSubtitle: 'Use your registered school account credentials to access the administration workspace.',
+    welcomeTitle: 'School ERP',
+    welcomeDescription: 'Operate admissions, academics, finance, attendance, and parent communication from a single control room.',
+    welcomeNote: 'This screen now follows the same CMS interface language, colors, and composition as your reference frontend.',
     identifierLabel: 'Email Address',
     identifierPlaceholder: 'admin@school.edu',
     icon: FiMail,
   },
   student: {
-    title: 'Student Portal',
-    subtitle: 'Access your lessons, results, and fees',
+    badge: 'Student Portal',
+    panelTitle: 'Student Login',
+    panelSubtitle: 'Sign in to view classes, homework, results, attendance, and fee details.',
+    welcomeTitle: 'Student Access',
+    welcomeDescription: 'Everything a learner needs, from timetable to academic progress, in one clean workspace.',
+    welcomeNote: 'Use the registered phone number or email given to the school.',
     identifierLabel: 'Registered Phone or Email',
     identifierPlaceholder: '9876543210',
     icon: FiUser,
   },
   parent: {
-    title: 'Parent Portal',
-    subtitle: 'Track your child\'s progress and performance',
+    badge: 'Parent Portal',
+    panelTitle: 'Parent Login',
+    panelSubtitle: 'Track your child’s attendance, fees, homework, marks, and school updates.',
+    welcomeTitle: 'Parent Access',
+    welcomeDescription: 'Stay connected to your child’s school journey with the same CMS look and feel across the portal.',
+    welcomeNote: 'Use the contact details linked during admission or registration.',
     identifierLabel: 'Registered Email or Phone',
     identifierPlaceholder: 'parent@email.com',
     icon: FiUsers,
   },
   chooser: {
-    title: 'School ERP System',
-    subtitle: 'Manage your institution smoothly',
+    badge: 'Unified Access',
+    panelTitle: 'Portal Login',
+    panelSubtitle: 'Choose your school ERP access point and continue with your credentials.',
+    welcomeTitle: 'Campus Access',
+    welcomeDescription: 'A single branded entry point for administration, students, and parents.',
+    welcomeNote: 'This UI has been aligned to the CMS theme while keeping your existing School ERP logic intact.',
     identifierLabel: 'Email / Username',
     identifierPlaceholder: 'your@email.com',
     icon: FiGrid,
@@ -57,10 +74,11 @@ export default function LoginPage({ portalType = 'admin' }) {
 
   const config = useMemo(() => PORTAL_CONFIG[portalType] || PORTAL_CONFIG.admin, [portalType]);
 
-  const handleSubmit = async e => {
-    e.preventDefault();
+  const handleSubmit = async event => {
+    event.preventDefault();
     if (!form.identifier.trim() || !form.password.trim()) {
-      return toast.error('Please enter your credentials.');
+      toast.error('Please enter your credentials.');
+      return;
     }
 
     setLoading(true);
@@ -68,98 +86,94 @@ export default function LoginPage({ portalType = 'admin' }) {
       const data = await login(form.identifier.trim(), form.password, portalType);
       toast.success(`Welcome, ${data.user.name}!`);
       navigate(ROLE_ROUTES[data.user.role] || '/admin');
-    } catch (err) {
-      console.error('Login request failed:', err.response?.data || err);
-      toast.error(err.response?.data?.message || 'Login failed. Please try again.');
+    } catch (error) {
+      console.error('Login request failed:', error.response?.data || error);
+      toast.error(error.response?.data?.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="auth-shell flex min-h-screen flex-col items-center justify-center">
-      <div className="mb-8 flex flex-col items-center">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-lg shadow-primary-200">
-          <config.icon className="text-3xl" />
-        </div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">{config.title}</h1>
-        <p className="mt-2 text-slate-500 font-medium">{config.subtitle}</p>
-      </div>
-
-      <div className="auth-card w-full max-w-md">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="form-group">
-            <label className="label text-slate-600">{config.identifierLabel}</label>
-            <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                <FiMail className="text-lg" />
-              </div>
-              <input
-                className="input pl-11"
-                type="text"
-                placeholder={config.identifierPlaceholder}
-                value={form.identifier}
-                onChange={e => setForm(current => ({ ...current, identifier: e.target.value }))}
-                autoComplete="username"
-              />
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="label text-slate-600">Password</label>
-            <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                <FiLock className="text-lg" />
-              </div>
-              <input
-                className="input pl-11 pr-11"
-                type={showPass ? 'text' : 'password'}
-                placeholder="........"
-                value={form.password}
-                onChange={e => setForm(current => ({ ...current, password: e.target.value }))}
-                autoComplete="current-password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPass(value => !value)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary-600 transition-colors"
-              >
-                {showPass ? <FiEyeOff /> : <FiEye />}
-              </button>
-            </div>
-          </div>
-
-          <button type="submit" disabled={loading} className="btn-primary w-full py-3.5 text-base font-bold tracking-normal uppercase-none">
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <svg className="h-5 w-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Signing in...
-              </span>
-            ) : (
-              'Sign In'
-            )}
-          </button>
-        </form>
-      </div>
-
-      {portalType === 'parent' && (
-        <div className="mt-5 text-center text-sm font-medium text-slate-500">
-          <p>
-            New parent account?{' '}
-            <Link to="/register/parent" className="text-primary-700 transition hover:text-primary-600">
-              Register using admission number
-            </Link>
+    <AuthSplitLayout
+      badge={config.badge}
+      panelTitle={config.panelTitle}
+      panelSubtitle={config.panelSubtitle}
+      welcomeTitle={config.welcomeTitle}
+      welcomeDescription={config.welcomeDescription}
+      welcomeNote={config.welcomeNote}
+      footer={(
+        <div className="space-y-3">
+          {portalType === 'parent' ? (
+            <p className="text-sm text-text-secondary">
+              New parent account?{' '}
+              <Link to="/register/parent" className="font-medium text-primary-700 hover:underline">
+                Register using admission number
+              </Link>
+            </p>
+          ) : null}
+          <p className="text-xs leading-6 text-text-secondary">
+            Copyright (c) All rights reserved. Powered by Ematix Embedded & Software Solutions Pvt Ltd.
           </p>
         </div>
       )}
-
-      <div className="mt-8 text-center text-sm font-medium text-slate-500">
-        <p>Copyright (c) All rights reserved.</p>
-        <p className="mt-1">Powered by Ematix Embedded & Software Solutions Pvt Ltd</p>
+    >
+      <div className="mb-5 flex items-center gap-3 border border-primary-200 bg-primary-50 px-4 py-3">
+        <div className="flex h-11 w-11 items-center justify-center border border-primary-200 bg-white text-primary-700">
+          <config.icon className="text-xl" />
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary-700">Secure Access</p>
+          <p className="text-sm text-text-primary">Enter your registered credentials to continue.</p>
+        </div>
       </div>
-    </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="label">{config.identifierLabel}</label>
+          <div className="relative">
+            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary">
+              <FiMail className="text-base" />
+            </div>
+            <input
+              className="input pl-10"
+              type="text"
+              placeholder={config.identifierPlaceholder}
+              value={form.identifier}
+              onChange={event => setForm(current => ({ ...current, identifier: event.target.value }))}
+              autoComplete="username"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">Password</label>
+          <div className="relative">
+            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary">
+              <FiLock className="text-base" />
+            </div>
+            <input
+              className="input pl-10 pr-10"
+              type={showPass ? 'text' : 'password'}
+              placeholder="Enter password"
+              value={form.password}
+              onChange={event => setForm(current => ({ ...current, password: event.target.value }))}
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPass(value => !value)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary transition hover:text-primary-700"
+            >
+              {showPass ? <FiEyeOff /> : <FiEye />}
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" disabled={loading} className="btn-primary w-full py-3">
+          {loading ? 'Signing In...' : 'Sign In'}
+        </button>
+      </form>
+    </AuthSplitLayout>
   );
 }

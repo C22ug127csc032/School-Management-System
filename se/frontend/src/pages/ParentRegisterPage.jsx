@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { FiArrowLeft, FiArrowRight, FiCheckCircle, FiLock, FiUser } from 'react-icons/fi';
 import api from '../api/axios.js';
+import AuthSplitLayout from '../components/common/AuthSplitLayout.jsx';
 
 function getRelationMessage(relation) {
   if (relation === 'father') return 'Father details found from the admission record.';
@@ -27,14 +28,12 @@ export default function ParentRegisterPage() {
   const [previewError, setPreviewError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const canSubmit = useMemo(() => {
-    return Boolean(
-      preview &&
-      form.password.trim() &&
-      form.confirmPassword.trim() &&
-      (preview.parent.email || form.email.trim() || form.phone.trim())
-    );
-  }, [preview, form.password, form.confirmPassword, form.email, form.phone]);
+  const canSubmit = useMemo(() => Boolean(
+    preview &&
+    form.password.trim() &&
+    form.confirmPassword.trim() &&
+    (preview.parent.email || form.email.trim() || form.phone.trim())
+  ), [preview, form.password, form.confirmPassword, form.email, form.phone]);
 
   const resetFetchedFields = admissionNo => {
     setForm(current => ({
@@ -83,16 +82,21 @@ export default function ParentRegisterPage() {
     }
   };
 
-  const handleRegister = async e => {
-    e.preventDefault();
+  const handleRegister = async event => {
+    event.preventDefault();
     if (!preview) {
       await handleFetch(form.admissionNo);
-      return toast.error('Wait for the student details to load first.');
+      toast.error('Wait for the student details to load first.');
+      return;
     }
     if (!preview.parent.email && !form.email.trim()) {
-      return toast.error('Enter an email address if it was not provided during admission.');
+      toast.error('Enter an email address if it was not provided during admission.');
+      return;
     }
-    if (form.password !== form.confirmPassword) return toast.error('Passwords do not match.');
+    if (form.password !== form.confirmPassword) {
+      toast.error('Passwords do not match.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -111,169 +115,166 @@ export default function ParentRegisterPage() {
   };
 
   return (
-    <div className="auth-shell flex min-h-screen flex-col items-center justify-center px-4 py-10">
-      <div className="mb-8 flex flex-col items-center text-center">
-        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-600 text-white shadow-lg shadow-primary-200">
-          <FiUser className="text-3xl" />
+    <AuthSplitLayout
+      badge="Parent Registration"
+      panelTitle="Create Parent Account"
+      panelSubtitle="Link the parent portal with an existing student admission record and complete account setup."
+      welcomeTitle="Register"
+      welcomeDescription="This registration screen now follows the CMS frontend theme while keeping your School ERP registration flow unchanged."
+      welcomeNote="Enter the student admission number first. The system will fetch saved parent or guardian details from the admission record."
+      footer={(
+        <div className="space-y-3">
+          <Link to="/login/parent" className="inline-flex items-center gap-2 text-sm font-medium text-primary-700 hover:underline">
+            <FiArrowLeft />
+            Back to Parent Login
+          </Link>
+          <p className="text-xs leading-6 text-text-secondary">
+            Registration access is restricted to students already present in the School ERP admission records.
+          </p>
         </div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Parent Registration</h1>
-        <p className="mt-2 max-w-xl text-sm font-medium text-slate-500">
-          Enter the student admission number first, then click the right arrow to load the saved parent details.
-          If father details were added during admission, those will be shown first. If not, the guardian details will be used instead.
-        </p>
-      </div>
+      )}
+    >
+      <form onSubmit={handleRegister} className="space-y-4">
+        <div className="border border-primary-200 bg-primary-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary-700">Step 1</p>
+          <p className="mt-2 text-sm text-text-primary">
+            Enter the student admission number and load the saved parent details.
+          </p>
+        </div>
 
-      <div className="auth-card w-full max-w-2xl">
-        <form onSubmit={handleRegister} className="space-y-6">
-          <div className="form-group mb-0">
-            <label className="label text-slate-600">Student Admission Number</label>
-            <div className="flex gap-3">
-              <input
-                className="input"
-                type="text"
-                placeholder="Enter admission number"
-                value={form.admissionNo}
-                onChange={e => {
-                  const admissionNo = e.target.value.toUpperCase();
-                  setPreview(null);
-                  setPreviewError('');
-                  resetFetchedFields(admissionNo);
-                }}
-                onKeyDown={async e => {
-                  if (e.key !== 'Enter') return;
-                  e.preventDefault();
-                  await handleFetch(e.currentTarget.value);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => handleFetch(form.admissionNo)}
-                disabled={loadingPreview || !form.admissionNo.trim()}
-                className="btn-primary h-12 w-12 shrink-0 px-0"
-                aria-label="Fetch admission details"
-              >
-                <FiArrowRight className="text-lg" />
-              </button>
-            </div>
-            <p className="mt-2 text-xs text-slate-500">
-              First enter the admission number, then click the right arrow to load the parent or guardian details.
-            </p>
+        <div>
+          <label className="label">Student Admission Number</label>
+          <div className="flex gap-3">
+            <input
+              className="input"
+              type="text"
+              placeholder="Enter admission number"
+              value={form.admissionNo}
+              onChange={event => {
+                const admissionNo = event.target.value.toUpperCase();
+                setPreview(null);
+                setPreviewError('');
+                resetFetchedFields(admissionNo);
+              }}
+              onKeyDown={async event => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                await handleFetch(event.currentTarget.value);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => handleFetch(form.admissionNo)}
+              disabled={loadingPreview || !form.admissionNo.trim()}
+              className="btn-primary h-11 w-11 shrink-0 px-0"
+              aria-label="Fetch admission details"
+            >
+              <FiArrowRight className="text-base" />
+            </button>
           </div>
+        </div>
 
-          {loadingPreview && (
-            <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-4">
-              <p className="text-sm font-semibold text-blue-700">Fetching admission details...</p>
+        {loadingPreview ? (
+          <div className="border border-primary-200 bg-primary-50 px-4 py-3">
+            <p className="text-sm font-semibold text-primary-700">Fetching admission details...</p>
+          </div>
+        ) : null}
+
+        {previewError ? (
+          <div className="border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-sm font-semibold text-red-700">{previewError}</p>
+          </div>
+        ) : null}
+
+        {preview && !loadingPreview ? (
+          <div className="border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <div className="mb-3 flex items-center gap-2 text-emerald-700">
+              <FiCheckCircle />
+              <p className="text-sm font-semibold">Student linked successfully</p>
             </div>
-          )}
-
-          {previewError && (
-            <div className="rounded-2xl border border-red-200 bg-red-50/80 p-4">
-              <p className="text-sm font-semibold text-red-700">{previewError}</p>
-            </div>
-          )}
-
-          {preview && !loadingPreview && (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-              <div className="mb-3 flex items-center gap-2 text-emerald-700">
-                <FiCheckCircle />
-                <p className="text-sm font-semibold">Student linked successfully</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Student</p>
+                <p className="mt-1 font-semibold text-text-primary">{preview.student.name}</p>
+                <p className="text-sm text-text-secondary">Admission No: {preview.student.admissionNo}</p>
+                <p className="text-sm text-text-secondary">Class: {preview.student.grade || '-'} {preview.student.section || ''}</p>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700/80">Student</p>
-                  <p className="mt-1 font-semibold text-slate-900">{preview.student.name}</p>
-                  <p className="text-sm text-slate-600">Admission No: {preview.student.admissionNo}</p>
-                  <p className="text-sm text-slate-600">Class: {preview.student.grade || '-'} {preview.student.section || ''}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700/80">Fetched Contact</p>
-                  <p className="mt-1 font-semibold text-slate-900">{getRelationMessage(preview.parent.relation)}</p>
-                  <p className="text-sm text-slate-600">Status: {preview.student.status?.replace(/_/g, ' ')}</p>
-                </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Fetched Contact</p>
+                <p className="mt-1 font-semibold text-text-primary">{getRelationMessage(preview.parent.relation)}</p>
+                <p className="text-sm text-text-secondary">Status: {preview.student.status?.replace(/_/g, ' ')}</p>
               </div>
             </div>
-          )}
+          </div>
+        ) : null}
 
-          {preview && (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="form-group">
-                  <label className="label text-slate-600">{form.relation === 'guardian' ? 'Guardian Name' : 'Parent Name'}</label>
-                  <input className="input bg-slate-50" type="text" value={form.parentName} readOnly />
-                </div>
-                <div className="form-group">
-                  <label className="label text-slate-600">Relation</label>
-                  <input className="input bg-slate-50 capitalize" type="text" value={form.relation} readOnly />
-                </div>
-                <div className="form-group">
-                  <label className="label text-slate-600">Phone</label>
-                  <input className="input bg-slate-50" type="text" value={form.phone} readOnly />
-                </div>
-                <div className="form-group">
-                  <label className="label text-slate-600">Email</label>
+        {preview ? (
+          <>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="form-group">
+                <label className="label">{form.relation === 'guardian' ? 'Guardian Name' : 'Parent Name'}</label>
+                <input className="input bg-slate-50" type="text" value={form.parentName} readOnly />
+              </div>
+              <div className="form-group">
+                <label className="label">Relation</label>
+                <input className="input bg-slate-50 capitalize" type="text" value={form.relation} readOnly />
+              </div>
+              <div className="form-group">
+                <label className="label">Phone</label>
+                <input className="input bg-slate-50" type="text" value={form.phone} readOnly />
+              </div>
+              <div className="form-group">
+                <label className="label">Email</label>
+                <input
+                  className={`input ${preview.parent.email ? 'bg-slate-50' : ''}`}
+                  type="email"
+                  value={form.email}
+                  placeholder={preview.parent.email ? '' : 'Enter parent email'}
+                  readOnly={Boolean(preview.parent.email)}
+                  onChange={event => setForm(current => ({ ...current, email: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="form-group">
+                <label className="label">Password</label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary">
+                    <FiLock className="text-base" />
+                  </div>
                   <input
-                    className={`input ${preview.parent.email ? 'bg-slate-50' : ''}`}
-                    type="email"
-                    value={form.email}
-                    placeholder={preview.parent.email ? '' : 'Enter parent email'}
-                    readOnly={Boolean(preview.parent.email)}
-                    onChange={e => setForm(current => ({ ...current, email: e.target.value }))}
+                    className="input pl-10"
+                    type="password"
+                    placeholder="Create a password"
+                    value={form.password}
+                    onChange={event => setForm(current => ({ ...current, password: event.target.value }))}
                   />
-                  {!preview.parent.email && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      No email was saved during admission. Add one now so the parent can log in using phone number or email.
-                    </p>
-                  )}
                 </div>
               </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="form-group">
-                  <label className="label text-slate-600">Password</label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <FiLock className="text-lg" />
-                    </div>
-                    <input
-                      className="input pl-11"
-                      type="password"
-                      placeholder="Create a password"
-                      value={form.password}
-                      onChange={e => setForm(current => ({ ...current, password: e.target.value }))}
-                    />
+              <div className="form-group">
+                <label className="label">Confirm Password</label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary">
+                    <FiLock className="text-base" />
                   </div>
-                </div>
-                <div className="form-group">
-                  <label className="label text-slate-600">Confirm Password</label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      <FiLock className="text-lg" />
-                    </div>
-                    <input
-                      className="input pl-11"
-                      type="password"
-                      placeholder="Confirm password"
-                      value={form.confirmPassword}
-                      onChange={e => setForm(current => ({ ...current, confirmPassword: e.target.value }))}
-                    />
-                  </div>
+                  <input
+                    className="input pl-10"
+                    type="password"
+                    placeholder="Confirm password"
+                    value={form.confirmPassword}
+                    onChange={event => setForm(current => ({ ...current, confirmPassword: event.target.value }))}
+                  />
                 </div>
               </div>
+            </div>
 
-              <button type="submit" disabled={!canSubmit || saving} className="btn-primary w-full py-3.5 text-base font-bold">
-                {saving ? 'Creating Parent Account...' : 'Register Parent Account'}
-              </button>
-            </>
-          )}
-        </form>
-      </div>
-
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-sm font-medium text-slate-500">
-        <Link to="/login/parent" className="inline-flex items-center gap-2 transition hover:text-primary-600">
-          <FiArrowLeft />
-          Back to Parent Login
-        </Link>
-      </div>
-    </div>
+            <button type="submit" disabled={!canSubmit || saving} className="btn-primary w-full py-3">
+              {saving ? 'Creating Parent Account...' : 'Register Parent Account'}
+            </button>
+          </>
+        ) : null}
+      </form>
+    </AuthSplitLayout>
   );
 }

@@ -1,6 +1,8 @@
+import forms from '@tailwindcss/forms';
+
 /** @type {import('tailwindcss').Config} */
-export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+const config = {
+  content: ['./src/**/*.{js,jsx,ts,tsx}'],
   theme: {
     extend: {
       colors: {
@@ -24,15 +26,13 @@ export default {
         border: '#CED7E2',
         'text-primary': '#182431',
         'text-secondary': '#5E6E7E',
-        'text-main': '#182431',
-        'text-muted': '#5E6E7E',
-        'app-bg': '#EEF1F4',
-        'card-bg': '#FFFFFF',
       },
       fontFamily: {
         sans: ['Segoe UI', 'Tahoma', 'Verdana', 'sans-serif'],
       },
     },
   },
-  plugins: [],
+  plugins: [forms],
 };
+
+export default config;
