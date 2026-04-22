@@ -41,11 +41,7 @@
   textarea,
   .input,
   .card,
-  .campus-panel,
-  .table-wrap,
-  .modal-box,
-  .stat-card,
-  .auth-card {
+  .campus-panel {
     border-radius: 4px;
   }
 }
@@ -72,40 +68,16 @@
     border: 1px solid #DC2626;
     background: #DC2626;
   }
-  .btn-danger:hover { background: #B91C1C; }
+  .btn-danger:hover {
+    background: #B91C1C;
+  }
   .btn-success {
     @apply inline-flex items-center justify-center gap-2 border border-emerald-800 bg-emerald-700 px-4 py-2.5 text-sm font-semibold uppercase tracking-[0.05em] text-white shadow-sm transition duration-150 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50;
   }
-  .btn-warning {
-    @apply inline-flex items-center justify-center gap-2 border border-amber-700 bg-amber-600 px-4 py-2.5 text-sm font-semibold uppercase tracking-[0.05em] text-white shadow-sm transition duration-150 hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50;
-  }
-  .btn-icon {
-    @apply inline-flex h-10 w-10 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition duration-150 disabled:cursor-not-allowed disabled:opacity-50;
-  }
-  .btn-icon:hover {
-    border-color: var(--brand-primary);
-    color: var(--brand-primary);
-    background: var(--brand-primary-soft);
-  }
-  .btn-sm { @apply h-9 px-3 text-xs; }
-  .btn-lg { @apply px-6 py-3 text-base; }
-
   .card {
     @apply border border-border bg-white p-4 shadow-sm sm:p-5;
     border-top: 3px solid var(--brand-primary-soft-border);
   }
-  .card-primary {
-    @apply card;
-    border-top-color: var(--brand-primary);
-  }
-  .campus-panel {
-    @apply border border-border bg-white shadow-sm;
-    border-top: 3px solid var(--brand-primary);
-  }
-  .table-wrap {
-    @apply overflow-hidden border border-border bg-white shadow-sm;
-  }
-
   .input {
     @apply w-full border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-text-primary shadow-sm transition duration-150 placeholder:text-slate-400 focus:border-primary-700 focus:outline-none focus:ring-0;
     min-height: 44px;
@@ -113,60 +85,49 @@
   .label {
     @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary;
   }
-  .form-group { @apply space-y-1.5; }
-
-  .badge { @apply inline-flex items-center px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]; }
-  .badge-green { @apply badge border border-emerald-200 bg-emerald-50 text-emerald-700; }
-  .badge-red { @apply badge border border-red-200 bg-red-50 text-red-700; }
-  .badge-yellow { @apply badge border border-amber-200 bg-amber-50 text-amber-700; }
-  .badge-blue { @apply badge border border-primary-200 bg-primary-50 text-primary-700; }
+  .badge-green  { @apply inline-flex items-center border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700; }
+  .badge-red    { @apply inline-flex items-center border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-red-700; }
+  .badge-yellow { @apply inline-flex items-center border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700; }
+  .badge-blue   { @apply inline-flex items-center border border-primary-200 bg-primary-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary-700; }
   .badge-purple {
-    @apply badge;
+    @apply inline-flex items-center px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em];
     border: 1px solid var(--brand-tertiary-soft-border);
     background: var(--brand-tertiary-soft);
     color: var(--brand-tertiary);
   }
-  .badge-gray { @apply badge border border-border bg-slate-100 text-text-secondary; }
-  .badge-teal { @apply badge border border-teal-200 bg-teal-50 text-teal-700; }
-
-  .table { @apply w-full border-collapse text-sm; }
-  .table thead { @apply bg-slate-50; }
+  .badge-gray   { @apply inline-flex items-center border border-border bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-secondary; }
   .table-header { @apply px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600 sm:px-4 sm:text-[11px]; }
-  .table-cell { @apply px-3 py-3 text-sm text-text-primary align-top sm:px-4; }
-  .table tbody tr { @apply border-t border-border; }
-  .table tbody tr:hover { @apply bg-slate-50/60; }
-
-  .page-title { @apply text-2xl font-semibold tracking-tight text-text-primary sm:text-3xl; }
-  .section-title { @apply mb-4 border-b border-border pb-2 text-sm font-semibold uppercase tracking-[0.14em] text-text-primary; }
-  .shadow-soft { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
-  .shadow-premium { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
-
-  .stat-card {
+  .table-cell   { @apply px-3 py-3 text-sm text-text-primary align-top sm:px-4; }
+  .page-title   { @apply text-2xl font-semibold tracking-tight text-text-primary sm:text-3xl; }
+  .section-title{ @apply mb-4 border-b border-border pb-2 text-sm font-semibold uppercase tracking-[0.14em] text-text-primary; }
+  .stat-card    {
     @apply grid gap-3 border border-border bg-white p-4 shadow-sm;
     border-left: 4px solid var(--brand-primary);
     grid-template-columns: auto minmax(0, 1fr);
   }
-  .stat-icon {
-    @apply flex h-12 w-12 items-center justify-center border border-primary-200 bg-primary-50 text-primary-700;
-  }
-
-  .app-shell,
-  .portal-shell {
+  .app-shell {
     @apply min-h-screen bg-light-bg text-text-primary;
   }
-  .institution-tag,
-  .portal-role-chip {
-    @apply inline-flex items-center px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em];
+  .campus-panel {
+    @apply border border-border bg-white shadow-sm;
+    border-top: 3px solid var(--brand-primary);
+  }
+  .institution-tag {
+    @apply inline-flex items-center px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em];
     border: 1px solid var(--brand-primary-soft-border);
     background: var(--brand-primary-soft);
     color: var(--brand-primary);
   }
-
+  .float-in {
+    animation: float-in 0.35s ease-out both;
+  }
   .portal-sidebar-scroll {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-  .portal-sidebar-scroll::-webkit-scrollbar { display: none; }
+  .portal-sidebar-scroll::-webkit-scrollbar {
+    display: none;
+  }
   .portal-sidebar {
     @apply flex h-full flex-col border-r text-white;
     border-color: #16263C;
@@ -176,7 +137,9 @@
     width: 84px;
     transition: width 280ms ease;
   }
-  .portal-desktop-sidebar:hover { width: 288px; }
+  .portal-desktop-sidebar:hover {
+    width: 288px;
+  }
   .portal-sidebar-brand {
     @apply border-b px-5 py-4;
     border-color: rgba(255, 255, 255, 0.08);
@@ -231,6 +194,12 @@
     border-left-color: var(--brand-sidebar-active);
     background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
+  }
+  .portal-role-chip {
+    @apply inline-flex items-center px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em];
+    border: 1px solid var(--brand-primary-soft-border);
+    background: var(--brand-primary-soft);
+    color: var(--brand-primary);
   }
   .portal-topbar {
     @apply border border-border bg-white shadow-sm;
@@ -288,22 +257,27 @@
     width: 16px;
     opacity: 1;
   }
-  .portal-nav-group-children { overflow: hidden; }
-  .portal-desktop-sidebar:not(:hover) .portal-nav-group-children { display: none; }
-  .portal-logout-button,
-  .portal-logout-btn {
+  .portal-nav-group-children {
+    overflow: hidden;
+  }
+  .portal-desktop-sidebar:not(:hover) .portal-nav-group-children {
+    display: none;
+  }
+  .portal-logout-button {
     @apply flex h-11 items-center justify-center border text-white transition duration-150;
     border-color: rgba(255, 255, 255, 0.14);
     background: rgba(255, 255, 255, 0.08);
     gap: 0.7rem;
   }
-  .portal-desktop-sidebar .portal-logout-button,
-  .portal-desktop-sidebar .portal-logout-btn { gap: 0; }
-  .portal-desktop-sidebar:hover .portal-logout-button,
-  .portal-desktop-sidebar:hover .portal-logout-btn { gap: 0.7rem; }
-  .portal-logout-button:hover,
-  .portal-logout-btn:hover { background: rgba(255, 255, 255, 0.16); }
-
+  .portal-desktop-sidebar .portal-logout-button {
+    gap: 0;
+  }
+  .portal-desktop-sidebar:hover .portal-logout-button {
+    gap: 0.7rem;
+  }
+  .portal-logout-button:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
   .auth-shell {
     @apply min-h-screen bg-light-bg px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8;
     background-image:
@@ -327,9 +301,6 @@
   .auth-kicker {
     @apply inline-flex items-center border border-primary-200 bg-primary-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-700;
   }
-  .auth-card {
-    @apply mx-auto w-full max-w-md border border-border bg-white p-6 shadow-sm sm:p-8;
-  }
   .auth-form-card {
     @apply mt-6 border border-border bg-slate-50 p-4 shadow-sm sm:p-5;
   }
@@ -343,13 +314,6 @@
   .public-panel {
     @apply mx-auto border border-border bg-white p-6 shadow-sm sm:p-8;
   }
-
-  .modal-overlay { @apply fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-4; }
-  .modal-box { @apply relative flex max-h-[90vh] flex-col overflow-hidden border border-border bg-white shadow-sm; }
-  .modal-header { @apply flex items-center justify-between border-b border-border px-6 py-4; }
-  .modal-body { @apply flex-1 overflow-y-auto px-6 py-6; }
-  .modal-footer { @apply flex items-center justify-end gap-3 border-t border-border bg-slate-50 px-6 py-4; }
-
   .action-icon-button {
     @apply inline-flex items-center justify-center border bg-white transition;
     width: 2rem;
@@ -417,8 +381,6 @@
     color: #ffffff;
     stroke: #ffffff;
   }
-
-  .float-in { animation: float-in 0.35s ease-out both; }
 }
 
 @layer utilities {
@@ -445,18 +407,9 @@
   .focus\:border-primary-700:focus { border-color: var(--brand-primary) !important; }
 }
 
-.tt-grid { @apply h-auto w-full border-separate border-spacing-1 !table; }
-.tt-header-cell { @apply h-auto border border-slate-200 bg-slate-50 p-2 text-center align-middle shadow-sm; }
-.tt-day-header { @apply w-24 border-slate-200 bg-white py-3 text-[9px] font-black uppercase tracking-widest text-slate-800; }
-.tt-slot { @apply relative flex h-14 flex-col items-center justify-center border border-slate-200 bg-white p-2 text-center shadow-sm transition-all duration-300; }
-.tt-slot-empty { @apply border-dashed border-slate-300 bg-slate-50/50 hover:border-primary-400 hover:bg-primary-50; }
-.tt-slot-break { @apply h-full items-center justify-center border-amber-200/50 bg-amber-50/60 text-[9px] font-black uppercase tracking-widest text-amber-700/80; }
-.tt-slot:hover:not(.tt-slot-break) { @apply -translate-y-0.5 border-primary-200 shadow-sm ring-2 ring-primary-500/5; }
-.tt-slot-subject { @apply mb-0.5 w-full truncate px-1 text-[10px] font-black leading-tight text-slate-900; }
-.tt-slot-teacher { @apply w-full truncate text-[8px] font-bold uppercase tracking-tight text-slate-500 opacity-80; }
-.tt-slot-class { @apply mt-0.5 inline-block bg-primary-100/50 px-1 py-0.5 text-[8px] font-black uppercase text-primary-800; }
-.tt-slot-time-badge { @apply absolute right-1 top-0.5 text-[7px] font-bold text-slate-400 transition-colors group-hover:text-primary-500; }
-.tt-container-fixed { @apply h-auto w-full overflow-visible; }
+/* Sidebar transition */
+.sidebar-enter { transform: translateX(-100%); }
+.sidebar-enter-active { transform: translateX(0); transition: transform 300ms; }
 
 @keyframes float-in {
   from {
@@ -477,10 +430,6 @@
 .rounded-\[1\.75rem\],
 .rounded-\[1\.8rem\],
 .rounded-\[2rem\],
-.rounded-\[22px\],
-.rounded-\[24px\],
-.rounded-\[26px\],
-.rounded-\[28px\],
 .rounded-\[30px\] {
   border-radius: 4px !important;
 }
@@ -493,6 +442,7 @@
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #E4E9EF; }
 ::-webkit-scrollbar-thumb { background: #9AAABD; border-radius: 2px; }
