@@ -42,6 +42,7 @@ const NAV = [
   {
     type: 'group', key: 'exams', label: 'Assessments', icon: FiClipboard,
     children: [
+      { to: '/admin/exam-schedule', label: 'Exam Schedule', icon: FiCalendar, accessKey: 'exams' },
       { to: '/admin/exams', label: 'Exam Marks', icon: FiClipboard, accessKey: 'exams' },
       { to: '/admin/report-cards', label: 'Report Cards', icon: FiFileText, accessKey: 'report_cards' },
       { to: '/admin/homework', label: 'Homework', icon: FiBook, accessKey: 'homework' },

@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect, adminOnly, allStaff, teachingStaff, teacherUp, leaveReviewers,
+import { protect, adminOnly, allStaff, teachingStaff, teacherUp, leaveReviewers, superAdminOnly,
          libStaff, financeStaff, feeStructureStaff, feeAssignStaff,
          timetableManagers, timetableViewers, substitutionMgr, inventoryStaff,
          settingsManagers, staffManagers, reportStaff } from '../middleware/auth.middleware.js';
@@ -165,9 +165,10 @@ homeworkRoutes.delete('/:id', teachingStaff,  miscCtrl.deleteHomework);
 export const examRoutes = express.Router();
 examRoutes.use(protect);
 examRoutes.get('/',           allStaff, miscCtrl.getExams);
-examRoutes.post('/',          teachingStaff, miscCtrl.createExam);
+examRoutes.post('/',          superAdminOnly, miscCtrl.createExam);
 examRoutes.get('/schedule',   allStaff, miscCtrl.getExamSchedule);
-examRoutes.post('/schedule',  adminOnly, miscCtrl.createExamSchedule);
+examRoutes.post('/schedule',  superAdminOnly, miscCtrl.createExamSchedule);
+examRoutes.post('/announce',  superAdminOnly, miscCtrl.announceExamSchedule);
 examRoutes.get('/marks',      allStaff, miscCtrl.getMarks);
 examRoutes.get('/report-card', allStaff, miscCtrl.getReportCard);
 examRoutes.post('/marks',     teachingStaff, miscCtrl.saveMarks);

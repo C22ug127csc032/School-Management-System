@@ -598,9 +598,12 @@ export function PortalExamsPage() {
             <div className="space-y-4">
               {schedules.map(item => (
                 <div key={item._id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <p className="font-bold text-slate-900">{item.subject?.name || 'Subject'}</p>
+                  <p className="font-bold text-slate-900">{item.paperName || item.subject?.name || 'Subject'}</p>
                   <p className="mt-1 text-sm text-slate-500">{item.exam?.name || 'Exam'} • {formatIndianDate(item.date)}</p>
                   <p className="mt-1 text-sm text-slate-500">{item.startTime || '-'} to {item.endTime || '-'}</p>
+                  {item.componentSubjects?.length ? (
+                    <p className="mt-1 text-xs text-slate-500">{item.componentSubjects.map(subject => subject?.name).filter(Boolean).join(', ')}</p>
+                  ) : null}
                 </div>
               ))}
             </div>

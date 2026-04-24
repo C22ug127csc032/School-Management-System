@@ -479,6 +479,7 @@ export const getPortalExams = async (req, res) => {
         ? ExamSchedule.find({ class: student.classRef._id, exam: { $in: examIds } })
           .populate('exam', 'name examType')
           .populate('subject', 'name code color')
+          .populate('componentSubjects', 'name code color')
           .sort({ date: 1 })
         : [],
       Mark.find({ student: student._id, exam: { $in: examIds } }).select('exam marksObtained maxMarks isPassed isAbsent'),

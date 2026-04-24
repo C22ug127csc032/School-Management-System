@@ -1,19 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { FiBookOpen, FiEdit2, FiPlus, FiSave } from 'react-icons/fi';
+import { FiBookOpen, FiEdit2, FiSave } from 'react-icons/fi';
 import api from '../../api/axios.js';
 import { EmptyState, Modal, PageHeader, PageLoader, SearchableSelect, StatusBadge } from '../../components/common/index.jsx';
 import useAcademicYear from '../../hooks/useAcademicYear.js';
 import useTeacherScope from '../../hooks/useTeacherScope.js';
-
-const EXAM_TYPES = [
-  { value: 'unit_test', label: 'Unit Test' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'half_yearly', label: 'Half Yearly' },
-  { value: 'annual', label: 'Annual' },
-  { value: 'mock', label: 'Mock' },
-  { value: 'other', label: 'Other' },
-];
 
 const createEmptyEntry = subjectId => ({
   subjectId,
@@ -43,9 +34,6 @@ export default function ExamsPage() {
   const [studentLoading, setStudentLoading] = useState(false);
   const [marksLoading, setMarksLoading] = useState(false);
   const [savingMarks, setSavingMarks] = useState(false);
-  const [examModal, setExamModal] = useState(false);
-  const [savingExam, setSavingExam] = useState(false);
-  const [examForm, setExamForm] = useState({ name: '', examType: 'unit_test', startDate: '', endDate: '', grades: [] });
 
   const loadBase = async () => {
     setLoading(true);
@@ -193,27 +181,6 @@ export default function ExamsPage() {
       .finally(() => setMarksLoading(false));
   }, [selectedExamId, selectedClassId, selectedStudentId, classSubjects, academicYear]);
 
-  const handleCreateExam = async () => {
-    if (!examForm.name.trim()) return toast.error('Exam name is required.');
-    setSavingExam(true);
-    try {
-      await api.post('/exams', {
-        ...examForm,
-        name: examForm.name.trim(),
-        grades: examForm.grades,
-        academicYear,
-      });
-      toast.success('Exam created.');
-      setExamModal(false);
-      setExamForm({ name: '', examType: 'unit_test', startDate: '', endDate: '', grades: [] });
-      loadBase();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to create exam.');
-    } finally {
-      setSavingExam(false);
-    }
-  };
-
   const handleMarkChange = (subjectId, key, value) => {
     setMarkEntries(current => ({
       ...current,
@@ -276,7 +243,6 @@ export default function ExamsPage() {
     value: item._id,
     label: `${item.firstName} ${item.lastName}${item.rollNo ? ` (${item.rollNo})` : ''}`,
   }));
-  const gradeOptions = [...new Set(classes.map(item => item.grade).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
 
   const selectedExam = exams.find(item => String(item._id) === String(selectedExamId));
   const selectedClass = classes.find(item => String(item._id) === String(selectedClassId));
@@ -324,7 +290,6 @@ export default function ExamsPage() {
       <PageHeader
         title="Exam Marks Entry"
         subtitle="Record subject-wise marks for individual students"
-        actions={<button onClick={() => setExamModal(true)} className="btn-primary btn-sm px-4"><FiPlus className="mr-2" /> Create Exam</button>}
       />
 
       {loading ? <PageLoader /> : (
@@ -515,54 +480,6 @@ export default function ExamsPage() {
         </>
       )}
 
-      <Modal
-        open={examModal}
-        onClose={() => setExamModal(false)}
-        title="Create Exam"
-        footer={<><button onClick={() => setExamModal(false)} className="btn-secondary btn-sm">Cancel</button><button onClick={handleCreateExam} disabled={savingExam} className="btn-primary btn-sm">{savingExam ? 'Saving...' : 'Create Exam'}</button></>}
-      >
-        <div className="space-y-4">
-          <div className="form-group">
-            <label className="label">Exam Name *</label>
-            <input className="input" placeholder="e.g. Unit Test 1" value={examForm.name} onChange={e => setExamForm(current => ({ ...current, name: e.target.value }))} />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="form-group">
-              <label className="label">Exam Type</label>
-              <SearchableSelect options={EXAM_TYPES} value={examForm.examType} onChange={value => setExamForm(current => ({ ...current, examType: value }))} />
-            </div>
-            <div className="form-group">
-              <label className="label">Start Date</label>
-              <input type="date" className="input" value={examForm.startDate} onChange={e => setExamForm(current => ({ ...current, startDate: e.target.value }))} />
-            </div>
-            <div className="form-group">
-              <label className="label">End Date</label>
-              <input type="date" className="input" value={examForm.endDate} onChange={e => setExamForm(current => ({ ...current, endDate: e.target.value }))} />
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="label">Grades</label>
-            <div className="grid grid-cols-4 gap-2">
-              {gradeOptions.map(grade => (
-                <label key={grade} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={examForm.grades.includes(grade)}
-                    onChange={() => setExamForm(current => ({
-                      ...current,
-                      grades: current.grades.includes(grade)
-                        ? current.grades.filter(item => item !== grade)
-                        : [...current.grades, grade],
-                    }))}
-                    className="accent-primary-700"
-                  />
-                  Grade {grade}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

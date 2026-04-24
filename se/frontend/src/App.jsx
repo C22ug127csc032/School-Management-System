@@ -41,6 +41,7 @@ import { FeeStructuresPage, AssignFeesPage, FeesListPage } from './pages/admin/F
 import { LibraryPage, CircularsPage, ExpensesPage } from './pages/admin/MiscPages.jsx';
 import HomeworkPage from './pages/admin/HomeworkPage.jsx';
 import ExamsPage from './pages/admin/ExamsPage.jsx';
+import ExamSchedulePage from './pages/admin/ExamSchedulePage.jsx';
 import ReportCardsPage from './pages/admin/ReportCardsPage.jsx';
 import SettingsPage from './pages/admin/SettingsPage.jsx';
 import StaffPage from './pages/admin/StaffPage.jsx';
@@ -98,6 +99,7 @@ function AppRoutes() {
         <Route path="outpass" element={<UnderConstructionPage title="Outpass" description="Student outpass approvals and gate-pass tracking need a dedicated workflow before release." />} />
 
         <Route path="exams" element={<ProtectedRoute allowedRoles={ACCESS.exams}><ExamsPage /></ProtectedRoute>} />
+        <Route path="exam-schedule" element={<ProtectedRoute allowedRoles={ACCESS.exams}><ExamSchedulePage /></ProtectedRoute>} />
         <Route path="homework" element={<ProtectedRoute allowedRoles={ACCESS.homework}><HomeworkPage /></ProtectedRoute>} />
         <Route path="report-cards" element={<ProtectedRoute allowedRoles={ACCESS.report_cards}><ReportCardsPage /></ProtectedRoute>} />
 

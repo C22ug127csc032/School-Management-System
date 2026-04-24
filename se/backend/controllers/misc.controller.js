@@ -2,6 +2,7 @@ import { Leave, Outpass, Circular, Homework, Exam, ExamSchedule, Mark } from '..
 import { Book, BookIssue, Inventory, InventoryTxn, Expense } from '../models/Operations.model.js';
 import Student from '../models/Student.model.js';
 import Teacher from '../models/Teacher.model.js';
+import ClassModel from '../models/Class.model.js';
 import ClassSubject from '../models/ClassSubject.model.js';
 import { resolveAcademicYear } from '../utils/academicYear.js';
 import { createPaginatedResponse, createSearchRegex, parseListQuery, resolveSort } from '../utils/query.js';
@@ -37,6 +38,56 @@ const getTeacherScope = async (req, linkedTeacherIds = null) => {
     .populate('eligibleSubjects', 'name code');
 };
 
+const getMergedTeacherScope = async (req, linkedTeacherIds = null) => {
+  if (!isTeachingRole(req.user?.role)) return null;
+
+  const teacherIds = linkedTeacherIds || await getLinkedTeacherIds(req);
+  if (!teacherIds.length) return null;
+
+  const teachers = await Teacher.find({ _id: { $in: teacherIds } })
+    .populate('classTeacherOf', 'grade section displayName groupName')
+    .populate('eligibleSubjects', 'name code');
+
+  if (!teachers.length) return null;
+
+  const classTeacherOfIds = [];
+  const classTeacherMap = new Map();
+  const eligibleSubjectIds = [];
+  const eligibleSubjectMap = new Map();
+
+  teachers.forEach(teacher => {
+    const classTeacherId = String(teacher?.classTeacherOf?._id || teacher?.classTeacherOf || '');
+    if (classTeacherId && !classTeacherMap.has(classTeacherId)) {
+      classTeacherMap.set(classTeacherId, teacher.classTeacherOf);
+      classTeacherOfIds.push(classTeacherId);
+    }
+
+    (teacher?.eligibleSubjects || []).forEach(subject => {
+      const subjectId = String(subject?._id || subject || '');
+      if (subjectId && !eligibleSubjectMap.has(subjectId)) {
+        eligibleSubjectMap.set(subjectId, subject);
+        eligibleSubjectIds.push(subjectId);
+      }
+    });
+  });
+
+  const primaryTeacherId = teacherIds.find(id => String(id) === String(req.user?.teacherRef)) || teacherIds[0];
+  const primaryTeacher = teachers.find(teacher => String(teacher._id) === String(primaryTeacherId)) || teachers[0];
+
+  return {
+    teacherIds,
+    teachers,
+    primaryTeacher,
+    classTeacherOfIds,
+    classTeacherOf: primaryTeacher?.classTeacherOf || teachers[0]?.classTeacherOf || null,
+    eligibleSubjectIds,
+    eligibleSubjects: [...eligibleSubjectMap.values()],
+  };
+};
+
+const hasClassTeacherAccess = teacherScope =>
+  Boolean(teacherScope?.classTeacherOfIds?.length || teacherScope?.classTeacherOf);
+
 const buildAssignmentQuery = (teacherIds, academicYear, classId, subjectId) => ({
   teacher: Array.isArray(teacherIds) ? { $in: teacherIds } : teacherIds,
   academicYear,
@@ -56,19 +107,20 @@ const findScopedTeachingAssignment = async (req, academicYear, classId, subjectI
   );
   if (directAssignment) return directAssignment;
 
-  if (req.user.role !== 'class_teacher') return null;
+  const teacherScope = await getMergedTeacherScope(req, linkedTeacherIds);
+  if (!hasClassTeacherAccess(teacherScope)) return null;
 
-  const teacher = await getTeacherScope(req, linkedTeacherIds);
-  const classTeacherOf = String(teacher?.classTeacherOf?._id || teacher?.classTeacherOf || '');
-  const eligibleSubjectIds = (teacher?.eligibleSubjects || []).map(subject => String(subject?._id || subject));
+  const managesClass = teacherScope?.classTeacherOfIds?.includes(String(classId || ''));
+  const eligibleSubjectIds = teacherScope?.eligibleSubjectIds || [];
 
-  if (!classTeacherOf || String(classId || '') !== classTeacherOf) return null;
+  if (!managesClass) return null;
   if (subjectId && !eligibleSubjectIds.includes(String(subjectId))) return null;
 
   return ClassSubject.findOne({
     class: classId,
     academicYear,
     isActive: true,
+    teacher: null,
     ...(subjectId ? { subject: subjectId } : {}),
   });
 };
@@ -79,10 +131,9 @@ const canManageExamClass = async (req, academicYear, classId, subjectId) => {
   const linkedTeacherIds = await getLinkedTeacherIds(req);
   if (!linkedTeacherIds.length) return false;
 
-  if (req.user.role === 'class_teacher') {
-    const teacher = await getTeacherScope(req, linkedTeacherIds);
-    const classTeacherOf = String(teacher?.classTeacherOf?._id || teacher?.classTeacherOf || '');
-    return Boolean(classTeacherOf) && String(classId || '') === classTeacherOf;
+  const teacherScope = await getMergedTeacherScope(req, linkedTeacherIds);
+  if (hasClassTeacherAccess(teacherScope)) {
+    return teacherScope.classTeacherOfIds.includes(String(classId || ''));
   }
 
   const assignment = await ClassSubject.findOne(buildAssignmentQuery(linkedTeacherIds, academicYear, classId, subjectId));
@@ -362,17 +413,108 @@ export const getExamSchedule = async (req, res) => {
     if (classId) query.class = classId;
     const schedule = await ExamSchedule.find(query)
       .populate('exam','name examType').populate('class','grade section displayName')
-      .populate('subject','name code color').sort({ date: 1 });
+      .populate('subject','name code color')
+      .populate('componentSubjects', 'name code color')
+      .sort({ date: 1, startTime: 1, paperName: 1 });
     res.json({ success: true, data: schedule });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
 export const createExamSchedule = async (req, res) => {
   try {
-    const s = await ExamSchedule.create(req.body);
+    const payload = { ...req.body };
+    if (!payload.paperName && payload.subject) {
+      const subjectAssignment = await ClassSubject.findOne({ class: payload.class, subject: payload.subject, isActive: true })
+        .populate('subject', 'name');
+      payload.paperName = subjectAssignment?.subject?.name || payload.paperName;
+    }
+
+    if (!payload.paperName) {
+      return res.status(400).json({ success: false, message: 'Paper name is required for the exam schedule.' });
+    }
+
+    const s = await ExamSchedule.create(payload);
     const p = await ExamSchedule.findById(s._id)
-      .populate('subject','name code').populate('class','grade section displayName');
+      .populate('exam', 'name examType')
+      .populate('subject','name code color')
+      .populate('componentSubjects', 'name code color')
+      .populate('class','grade section displayName');
     res.status(201).json({ success: true, data: p });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+export const announceExamSchedule = async (req, res) => {
+  try {
+    const { examId, classId } = req.body;
+    if (!examId || !classId) {
+      return res.status(400).json({ success: false, message: 'examId and classId are required.' });
+    }
+
+    const [exam, cls, schedules] = await Promise.all([
+      Exam.findById(examId),
+      ClassModel.findById(classId),
+      ExamSchedule.find({ exam: examId, class: classId })
+        .populate('subject', 'name code')
+        .populate('componentSubjects', 'name code')
+        .sort({ date: 1, startTime: 1, paperName: 1 }),
+    ]);
+
+    if (!exam) return res.status(404).json({ success: false, message: 'Exam not found.' });
+    if (!cls) return res.status(404).json({ success: false, message: 'Class not found.' });
+    if (!schedules.length) {
+      return res.status(400).json({ success: false, message: 'Create the exam schedule before announcing it.' });
+    }
+
+    exam.isPublished = true;
+    await exam.save();
+
+    const lines = schedules.map((item, index) => {
+      const paper = item.paperName || item.subject?.name || 'Subject';
+      const date = item.date ? new Date(item.date).toLocaleDateString('en-IN') : 'Date pending';
+      const time = [item.startTime, item.endTime].filter(Boolean).join(' - ') || 'Time pending';
+      const hall = item.hall ? `, Hall: ${item.hall}` : '';
+      return `${index + 1}. ${paper} - ${date}, ${time}${hall}`;
+    });
+
+    const title = `Exam Schedule Announced: ${exam.name} - ${cls.displayName}`;
+    const content = [
+      `The exam schedule for ${exam.name} has been announced for ${cls.displayName}.`,
+      '',
+      ...lines,
+    ].join('\n');
+
+    const existingCircular = await Circular.findOne({
+      title,
+      type: 'exam',
+      isPublished: true,
+      classRefs: classId,
+      audience: { $all: ['student', 'parent'] },
+    });
+
+    let circular;
+    if (existingCircular) {
+      existingCircular.content = content;
+      existingCircular.publishDate = new Date();
+      existingCircular.publishedBy = req.user._id;
+      circular = await existingCircular.save();
+    } else {
+      circular = await Circular.create({
+        title,
+        content,
+        type: 'exam',
+        audience: ['student', 'parent'],
+        classRefs: [classId],
+        publishDate: new Date(),
+        isPublished: true,
+        publishedBy: req.user._id,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { exam, class: cls, circular, schedules },
+      message: 'Exam schedule announced to students and parents.',
+    });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
@@ -702,7 +844,7 @@ export default {
   getOutpasses, createOutpass, updateOutpassStatus,
   getCirculars, createCircular, deleteCircular,
   getHomework, createHomework, deleteHomework,
-  getExams, createExam, getExamSchedule, createExamSchedule, getMarks, saveMarks, getReportCard,
+  getExams, createExam, getExamSchedule, createExamSchedule, announceExamSchedule, getMarks, saveMarks, getReportCard,
   getBooks, createBook, updateBook, issueBook, returnBook, getIssues,
   getInventory, createInventoryItem, recordInventoryTxn,
   getExpenses, createExpense,

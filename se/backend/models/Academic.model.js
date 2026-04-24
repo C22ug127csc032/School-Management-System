@@ -104,7 +104,10 @@ export const Exam = mongoose.model('Exam', examSchema);
 const examScheduleSchema = new mongoose.Schema({
   exam:    { type: mongoose.Schema.Types.ObjectId, ref: 'Exam', required: true },
   class:   { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
-  subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
+  subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', default: null },
+  scheduleType: { type: String, enum: ['test', 'exam'], default: 'test' },
+  paperName: { type: String, required: true, trim: true },
+  componentSubjects: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subject' }],
   date:    { type: Date, required: true },
   startTime: { type: String },
   endTime:   { type: String },
