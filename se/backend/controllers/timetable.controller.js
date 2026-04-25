@@ -265,7 +265,7 @@ export const autoGenerateTimetable = async (req, res) => {
     const { academicYear, overwrite } = req.body;
     const ay = resolveAcademicYear(academicYear);
 
-    const [cls, periods, assignments] = await Promise.all([
+    const [cls, periods, rawAssignments] = await Promise.all([
       Class.findById(classId),
       getActivePeriodsForDisplay(ay, { isBreak: false }),
       ClassSubject.find({ class: classId, academicYear: ay, isActive: true })
@@ -275,7 +275,11 @@ export const autoGenerateTimetable = async (req, res) => {
 
     if (!cls) return res.status(404).json({ success: false, message: 'Class not found.' });
     if (!periods.length) return res.status(400).json({ success: false, message: 'No periods configured. Please generate periods first.' });
-    if (!assignments.length) return res.status(400).json({ success: false, message: 'No subjects assigned to this class. Please assign subjects first.' });
+    if (!rawAssignments.length) return res.status(400).json({ success: false, message: 'No subjects assigned to this class. Please assign subjects first.' });
+
+    const teachingAssignments = rawAssignments.filter(assignment => assignment.subject?.subjectRole !== 'main');
+    const assignments = teachingAssignments.length ? teachingAssignments : rawAssignments;
+
     if (assignments.some(a => !a.teacher)) {
       return res.status(400).json({ success: false, message: 'Some subjects have no teacher assigned. Please assign teachers to all subjects.' });
     }

@@ -11,7 +11,11 @@ export const getActiveClassSubjectAssignments = async (classId, academicYear) =>
   const query = { class: classId, isActive: true };
   if (academicYear) query.academicYear = academicYear;
   return ClassSubject.find(query)
-    .populate('subject', 'name code color type applicableGradeLevels periodsPerWeek applicableGroups isGroupSpecific')
+    .populate({
+      path: 'subject',
+      select: 'name code color type subjectRole parentSubject applicableGradeLevels periodsPerWeek applicableGroups isGroupSpecific',
+      populate: { path: 'parentSubject', select: 'name code subjectRole color' },
+    })
     .populate('teacher', 'name firstName lastName employeeId eligibleGradeLevels eligibleSubjects')
     .sort({ createdAt: 1 });
 };

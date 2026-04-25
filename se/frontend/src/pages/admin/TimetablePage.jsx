@@ -149,10 +149,14 @@ export default function TimetablePage() {
     label: c.displayName || `Grade ${c.grade}-${c.section}`,
   }));
 
-  const subjectOptions = classSubjects.map(cs => ({
-    value: cs.subject?._id,
-    label: `${cs.subject?.name} (${cs.subject?.code})`,
-  }));
+  const teachingSubjectOptions = useMemo(() => {
+    const nonMainSubjects = classSubjects.filter(cs => cs.subject && cs.subject.subjectRole !== 'main');
+    const source = nonMainSubjects.length ? nonMainSubjects : classSubjects;
+    return source.map(cs => ({
+      value: cs.subject?._id,
+      label: `${cs.subject?.name} (${cs.subject?.code})${cs.subject?.parentSubject?.name ? ` - ${cs.subject.parentSubject.name}` : ''}`,
+    }));
+  }, [classSubjects]);
 
   const selectedClassSubject = useMemo(() => (
     classSubjects.find(cs => String(cs.subject?._id) === String(slotForm.subjectId))
@@ -356,7 +360,7 @@ export default function TimetablePage() {
           <div>
             <label className="label">Subject</label>
             <SearchableSelect
-              options={subjectOptions}
+              options={teachingSubjectOptions}
               value={slotForm.subjectId}
               onChange={v => setSlotForm(f => ({ ...f, subjectId: v }))}
               placeholder="Select subject..."

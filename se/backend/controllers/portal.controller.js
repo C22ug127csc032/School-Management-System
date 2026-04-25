@@ -9,6 +9,94 @@ import { BookIssue } from '../models/Operations.model.js';
 import { getActivePeriodsForDisplay } from '../utils/periods.js';
 
 const PORTAL_ROLES = ['parent', 'student'];
+const INDIA_TIMEZONE = 'Asia/Kolkata';
+const EXAM_TIMETABLE_SLOTS = [
+  { key: 'morning', label: 'Morning' },
+  { key: 'afternoon', label: 'Afternoon' },
+];
+
+const toDateKey = value => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-CA', { timeZone: INDIA_TIMEZONE });
+};
+
+const getWeekdayName = value => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: INDIA_TIMEZONE });
+};
+
+const parseDateKey = dateKey => new Date(`${dateKey}T00:00:00+05:30`);
+
+const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) => {
+  if (!exam?.startDate || !exam?.endDate) return [];
+
+  const scheduleMap = schedules.reduce((map, schedule) => {
+    const key = toDateKey(schedule.date);
+    if (!key) return map;
+    map[key] = map[key] || {};
+    map[key][schedule.slotName || 'morning'] = schedule;
+    return map;
+  }, {});
+
+  const holidayMap = holidayRecords.reduce((map, record) => {
+    const key = toDateKey(record.date);
+    if (!key) return map;
+    map[key] = record.holidayReason || 'Holiday';
+    return map;
+  }, {});
+
+  const calendarDays = [];
+  let cursor = parseDateKey(toDateKey(exam.startDate));
+  const end = parseDateKey(toDateKey(exam.endDate));
+
+  while (cursor <= end) {
+    const dateKey = toDateKey(cursor);
+    const weekday = getWeekdayName(cursor);
+    const isSunday = weekday === 'Sunday';
+    const holidayReason = holidayMap[dateKey] || '';
+    const isHoliday = Boolean(holidayReason);
+    const slots = EXAM_TIMETABLE_SLOTS.map(slot => {
+      const entry = scheduleMap[dateKey]?.[slot.key] || null;
+      const blocked = isSunday || isHoliday;
+
+      if (entry) {
+        return {
+          key: slot.key,
+          label: slot.label,
+          blocked,
+          entry,
+          status: blocked ? 'blocked_with_entry' : (entry.slotType || 'exam'),
+        };
+      }
+
+      if (isHoliday) {
+        return { key: slot.key, label: slot.label, blocked: true, entry: null, status: 'holiday', note: holidayReason || 'Holiday' };
+      }
+
+      if (isSunday) {
+        return { key: slot.key, label: slot.label, blocked: true, entry: null, status: 'sunday', note: 'Sunday' };
+      }
+
+      return { key: slot.key, label: slot.label, blocked: false, entry: null, status: 'empty' };
+    });
+
+    calendarDays.push({
+      date: dateKey,
+      weekday,
+      isSunday,
+      isHoliday,
+      holidayReason,
+      status: isHoliday ? 'holiday' : (isSunday ? 'sunday' : 'working_day'),
+      slots,
+    });
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return calendarDays;
+};
 
 const ensurePortalUser = req => PORTAL_ROLES.includes(req.user?.role);
 
@@ -474,7 +562,18 @@ export const getPortalExams = async (req, res) => {
     const filteredExams = exams.filter(exam => examMatchesStudent(exam, student));
     const examIds = filteredExams.map(exam => exam._id);
 
-    const [schedules, marks] = await Promise.all([
+    const dateBounds = filteredExams.reduce((acc, exam) => {
+      if (!exam?.startDate || !exam?.endDate) return acc;
+      const start = new Date(exam.startDate);
+      const end = new Date(exam.endDate);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return acc;
+      return {
+        min: !acc.min || start < acc.min ? start : acc.min,
+        max: !acc.max || end > acc.max ? end : acc.max,
+      };
+    }, { min: null, max: null });
+
+    const [schedules, marks, holidayRecords] = await Promise.all([
       student.classRef?._id
         ? ExamSchedule.find({ class: student.classRef._id, exam: { $in: examIds } })
           .populate('exam', 'name examType')
@@ -483,6 +582,13 @@ export const getPortalExams = async (req, res) => {
           .sort({ date: 1 })
         : [],
       Mark.find({ student: student._id, exam: { $in: examIds } }).select('exam marksObtained maxMarks isPassed isAbsent'),
+      student.classRef?._id && dateBounds.min && dateBounds.max
+        ? Attendance.find({
+          class: student.classRef._id,
+          isHoliday: true,
+          date: { $gte: dateBounds.min, $lte: dateBounds.max },
+        }).select('date holidayReason')
+        : [],
     ]);
 
     const marksByExam = marks.reduce((map, mark) => {
@@ -509,7 +615,24 @@ export const getPortalExams = async (req, res) => {
       };
     });
 
-    res.json({ success: true, data: { student: toStudentSummary(student), exams: examCards, schedules } });
+    const schedulesByExam = schedules.reduce((map, schedule) => {
+      const key = String(schedule.exam?._id || schedule.exam || '');
+      if (!key) return map;
+      map[key] = map[key] || [];
+      map[key].push(schedule);
+      return map;
+    }, {});
+
+    const calendarByExam = filteredExams.reduce((map, exam) => {
+      map[String(exam._id)] = buildExamCalendarDays({
+        exam,
+        schedules: schedulesByExam[String(exam._id)] || [],
+        holidayRecords,
+      });
+      return map;
+    }, {});
+
+    res.json({ success: true, data: { student: toStudentSummary(student), exams: examCards, schedules, calendarByExam } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

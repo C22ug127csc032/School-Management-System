@@ -4,10 +4,75 @@ import Student from '../models/Student.model.js';
 import Teacher from '../models/Teacher.model.js';
 import ClassModel from '../models/Class.model.js';
 import ClassSubject from '../models/ClassSubject.model.js';
+import Attendance from '../models/Attendance.model.js';
+import { TIMETABLE_DAYS } from '../models/TimetableSlot.model.js';
 import { resolveAcademicYear } from '../utils/academicYear.js';
+import { getActivePeriodsForDisplay } from '../utils/periods.js';
 import { createPaginatedResponse, createSearchRegex, parseListQuery, resolveSort } from '../utils/query.js';
 
 const isTeachingRole = role => ['teacher', 'class_teacher'].includes(role);
+const INDIA_TIMEZONE = 'Asia/Kolkata';
+const toDateKey = value => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-CA', { timeZone: INDIA_TIMEZONE });
+};
+
+const getWeekdayName = value => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: INDIA_TIMEZONE });
+};
+
+const parseDateKey = dateKey => new Date(`${dateKey}T00:00:00+05:30`);
+const TIMETABLE_DAY_ORDER = TIMETABLE_DAYS.reduce((acc, day, index) => ({ ...acc, [day]: index }), {});
+
+const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) => {
+  if (!exam?.startDate || !exam?.endDate) return [];
+
+  const scheduleMap = schedules.reduce((map, schedule) => {
+    const key = toDateKey(schedule.date);
+    if (!key) return map;
+    map[key] = schedule;
+    return map;
+  }, {});
+
+  const holidayMap = holidayRecords.reduce((map, record) => {
+    const key = toDateKey(record.date);
+    if (!key) return map;
+    map[key] = record.holidayReason || 'Holiday';
+    return map;
+  }, {});
+
+  const calendarDays = [];
+  let cursor = parseDateKey(toDateKey(exam.startDate));
+  const end = parseDateKey(toDateKey(exam.endDate));
+
+  while (cursor <= end) {
+    const dateKey = toDateKey(cursor);
+    const weekday = getWeekdayName(cursor);
+    const isSunday = weekday === 'Sunday';
+    const holidayReason = holidayMap[dateKey] || '';
+    const isHoliday = Boolean(holidayReason);
+    const entry = scheduleMap[dateKey] || null;
+    const blocked = isSunday || isHoliday;
+
+    calendarDays.push({
+      date: dateKey,
+      weekday,
+      isSunday,
+      isHoliday,
+      holidayReason,
+      status: isHoliday ? 'holiday' : (isSunday ? 'sunday' : 'working_day'),
+      blocked,
+      entry,
+    });
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return calendarDays;
+};
 
 const getLinkedTeacherIds = async req => {
   if (!isTeachingRole(req.user?.role)) return [];
@@ -407,15 +472,56 @@ export const createExam = async (req, res) => {
 
 export const getExamSchedule = async (req, res) => {
   try {
-    const { examId, classId } = req.query;
+    const { examId, classId, includeCalendar } = req.query;
+    const ay = resolveAcademicYear(req.query.academicYear);
     const query = {};
     if (examId)  query.exam  = examId;
     if (classId) query.class = classId;
     const schedule = await ExamSchedule.find(query)
       .populate('exam','name examType').populate('class','grade section displayName')
       .populate('subject','name code color')
+      .populate('period', 'periodNo name startTime endTime isBreak')
+      .populate('endPeriod', 'periodNo name startTime endTime isBreak')
       .populate('componentSubjects', 'name code color')
       .sort({ date: 1, startTime: 1, paperName: 1 });
+
+    schedule.sort((left, right) => {
+      const leftDayOrder = TIMETABLE_DAY_ORDER[left.day] ?? 99;
+      const rightDayOrder = TIMETABLE_DAY_ORDER[right.day] ?? 99;
+      if (leftDayOrder !== rightDayOrder) return leftDayOrder - rightDayOrder;
+
+      const leftPeriodNo = Number(left.period?.periodNo ?? 999);
+      const rightPeriodNo = Number(right.period?.periodNo ?? 999);
+      if (leftPeriodNo !== rightPeriodNo) return leftPeriodNo - rightPeriodNo;
+
+      const leftDate = left.date ? new Date(left.date).getTime() : 0;
+      const rightDate = right.date ? new Date(right.date).getTime() : 0;
+      return leftDate - rightDate;
+    });
+
+    if (includeCalendar === 'true' && examId && classId) {
+      const [exam, periods] = await Promise.all([
+        Exam.findById(examId).select('name startDate endDate'),
+        getActivePeriodsForDisplay(ay, { isBreak: false }),
+      ]);
+      const holidayRecords = exam?.startDate && exam?.endDate
+        ? await Attendance.find({
+          class: classId,
+          isHoliday: true,
+          date: { $gte: new Date(exam.startDate), $lte: new Date(exam.endDate) },
+        }).select('date holidayReason')
+        : [];
+
+      return res.json({
+        success: true,
+        data: {
+          schedules: schedule,
+          calendarDays: buildExamCalendarDays({ exam, schedules: schedule, holidayRecords }),
+          slotTemplates: periods,
+        },
+      });
+    }
+
     res.json({ success: true, data: schedule });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -423,23 +529,139 @@ export const getExamSchedule = async (req, res) => {
 export const createExamSchedule = async (req, res) => {
   try {
     const payload = { ...req.body };
+    payload.slotType = payload.slotType || 'exam';
+    payload.note = String(payload.note || '').trim();
+    payload.scheduleType = payload.scheduleType || 'exam';
+    const hasWeeklySlot = Boolean(payload.day);
+    const scheduleDate = payload.date ? new Date(payload.date) : null;
+
+    if (!['exam', 'revision', 'holiday', 'no_session'].includes(payload.slotType)) {
+      return res.status(400).json({ success: false, message: 'slotType is invalid.' });
+    }
+
+    if (!hasWeeklySlot && (!scheduleDate || Number.isNaN(scheduleDate.getTime()))) {
+      return res.status(400).json({ success: false, message: 'A valid exam date is required.' });
+    }
+
+    if (hasWeeklySlot && !TIMETABLE_DAYS.includes(payload.day)) {
+      return res.status(400).json({ success: false, message: 'A valid timetable day is required.' });
+    }
+
+    if (!hasWeeklySlot && payload.slotType === 'exam' && getWeekdayName(scheduleDate) === 'Sunday') {
+      return res.status(400).json({ success: false, message: 'Exams cannot be scheduled on Sunday.' });
+    }
+
+    const holidayRecord = hasWeeklySlot
+      ? null
+      : await Attendance.findOne({
+        class: payload.class,
+        isHoliday: true,
+        date: {
+          $gte: new Date(new Date(scheduleDate).setHours(0, 0, 0, 0)),
+          $lte: new Date(new Date(scheduleDate).setHours(23, 59, 59, 999)),
+        },
+      }).select('holidayReason');
+
+    if (holidayRecord && payload.slotType === 'exam') {
+      return res.status(400).json({
+        success: false,
+        message: `Exams cannot be scheduled on a holiday${holidayRecord.holidayReason ? `: ${holidayRecord.holidayReason}` : '.'}`,
+      });
+    }
+
+    const academicYear = resolveAcademicYear(payload.academicYear);
+    let selectedPeriod = null;
+    let selectedEndPeriod = null;
+    if (payload.periodId) {
+      const periodOptions = await getActivePeriodsForDisplay(academicYear, { isBreak: false });
+      selectedPeriod = periodOptions.find(period => String(period._id) === String(payload.periodId));
+      selectedEndPeriod = periodOptions.find(period => String(period._id) === String(payload.endPeriodId || payload.periodId));
+      if (!selectedPeriod) {
+        return res.status(400).json({ success: false, message: 'Select a valid timetable slot.' });
+      }
+      if (!selectedEndPeriod) {
+        return res.status(400).json({ success: false, message: 'Select a valid ending period.' });
+      }
+      if (Number(selectedEndPeriod.periodNo) < Number(selectedPeriod.periodNo)) {
+        return res.status(400).json({ success: false, message: 'Ending period must be the same as or after the starting period.' });
+      }
+      payload.period = selectedPeriod._id;
+      payload.endPeriod = selectedEndPeriod._id;
+      payload.slotName = selectedPeriod._id === selectedEndPeriod._id
+        ? selectedPeriod.name
+        : `${selectedPeriod.name} - ${selectedEndPeriod.name}`;
+    } else if (payload.slotType === 'holiday' || payload.slotType === 'no_session') {
+      payload.period = null;
+      payload.endPeriod = null;
+      payload.slotName = 'Full Day';
+    } else if (payload.slotName) {
+      payload.slotName = String(payload.slotName).trim();
+    } else {
+      return res.status(400).json({ success: false, message: 'A timetable slot is required.' });
+    }
+
+    if (payload.slotType === 'exam' || payload.slotType === 'revision') {
+      payload.startTime = selectedPeriod?.startTime || payload.startTime || '';
+      payload.endTime = selectedEndPeriod?.endTime || payload.endTime || '';
+      if (!payload.startTime || !payload.endTime) {
+        return res.status(400).json({ success: false, message: 'Unable to resolve the timetable slot timing.' });
+      }
+    } else {
+      payload.startTime = '';
+      payload.endTime = '';
+      payload.hall = '';
+      payload.endPeriod = selectedEndPeriod?._id || payload.endPeriod || null;
+    }
+
+    if (payload.slotType !== 'exam') {
+      payload.subject = null;
+      payload.componentSubjects = [];
+      payload.paperName = '';
+      payload.maxMarks = 100;
+      payload.passMarks = 35;
+    }
+
     if (!payload.paperName && payload.subject) {
       const subjectAssignment = await ClassSubject.findOne({ class: payload.class, subject: payload.subject, isActive: true })
         .populate('subject', 'name');
       payload.paperName = subjectAssignment?.subject?.name || payload.paperName;
     }
 
-    if (!payload.paperName) {
-      return res.status(400).json({ success: false, message: 'Paper name is required for the exam schedule.' });
+    if (payload.slotType === 'exam' && !payload.subject && !(payload.componentSubjects || []).length) {
+      return res.status(400).json({ success: false, message: 'Subject is required for an exam slot.' });
     }
 
-    const s = await ExamSchedule.create(payload);
+    if (payload.slotType === 'exam' && !payload.paperName) {
+      return res.status(400).json({ success: false, message: 'Paper name is required for the exam slot.' });
+    }
+
+    const existingQuery = {
+      exam: payload.exam,
+      class: payload.class,
+    };
+
+    if (hasWeeklySlot) {
+      payload.date = null;
+      existingQuery.day = payload.day;
+    } else {
+      const startOfDay = new Date(new Date(scheduleDate).setHours(0, 0, 0, 0));
+      const endOfDay = new Date(new Date(scheduleDate).setHours(23, 59, 59, 999));
+      existingQuery.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    const existing = await ExamSchedule.findOne(existingQuery).select('_id');
+
+    const s = existing
+      ? await ExamSchedule.findByIdAndUpdate(existing._id, payload, { new: true, runValidators: true })
+      : await ExamSchedule.create(payload);
     const p = await ExamSchedule.findById(s._id)
       .populate('exam', 'name examType')
       .populate('subject','name code color')
+      .populate('period', 'periodNo name startTime endTime isBreak')
+      .populate('endPeriod', 'periodNo name startTime endTime isBreak')
       .populate('componentSubjects', 'name code color')
       .populate('class','grade section displayName');
-    res.status(201).json({ success: true, data: p });
+    res.status(existing ? 200 : 201).json({ success: true, data: p });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
@@ -454,6 +676,8 @@ export const announceExamSchedule = async (req, res) => {
       Exam.findById(examId),
       ClassModel.findById(classId),
       ExamSchedule.find({ exam: examId, class: classId })
+        .populate('period', 'periodNo name startTime endTime')
+        .populate('endPeriod', 'periodNo name startTime endTime')
         .populate('subject', 'name code')
         .populate('componentSubjects', 'name code')
         .sort({ date: 1, startTime: 1, paperName: 1 }),
@@ -468,12 +692,39 @@ export const announceExamSchedule = async (req, res) => {
     exam.isPublished = true;
     await exam.save();
 
+    schedules.sort((left, right) => {
+      const leftDayOrder = TIMETABLE_DAY_ORDER[left.day] ?? 99;
+      const rightDayOrder = TIMETABLE_DAY_ORDER[right.day] ?? 99;
+      if (leftDayOrder !== rightDayOrder) return leftDayOrder - rightDayOrder;
+
+      const leftPeriodNo = Number(left.period?.periodNo ?? 999);
+      const rightPeriodNo = Number(right.period?.periodNo ?? 999);
+      if (leftPeriodNo !== rightPeriodNo) return leftPeriodNo - rightPeriodNo;
+
+      const leftDate = left.date ? new Date(left.date).getTime() : 0;
+      const rightDate = right.date ? new Date(right.date).getTime() : 0;
+      return leftDate - rightDate;
+    });
+
     const lines = schedules.map((item, index) => {
-      const paper = item.paperName || item.subject?.name || 'Subject';
-      const date = item.date ? new Date(item.date).toLocaleDateString('en-IN') : 'Date pending';
-      const time = [item.startTime, item.endTime].filter(Boolean).join(' - ') || 'Time pending';
-      const hall = item.hall ? `, Hall: ${item.hall}` : '';
-      return `${index + 1}. ${paper} - ${date}, ${time}${hall}`;
+      const slotLabel = item.period && item.endPeriod
+        ? (String(item.period._id) === String(item.endPeriod._id)
+          ? item.period.name
+          : `${item.period.name} - ${item.endPeriod.name}`)
+        : (item.period?.name || item.slotName || 'Slot');
+      const date = item.day || (item.date ? new Date(item.date).toLocaleDateString('en-IN') : 'Date pending');
+      if (item.slotType === 'exam') {
+        const paper = item.paperName || item.subject?.name || 'Subject';
+        const time = [item.startTime, item.endTime].filter(Boolean).join(' - ') || 'Time pending';
+        const hall = item.hall ? `, Hall: ${item.hall}` : '';
+        return `${index + 1}. ${date} ${slotLabel}: ${paper} - ${time}${hall}`;
+      }
+
+      const label = item.slotType === 'revision'
+        ? 'Revision'
+        : (item.slotType === 'holiday' ? 'Holiday' : 'No Session');
+      const time = [item.startTime, item.endTime].filter(Boolean).join(' - ');
+      return `${index + 1}. ${date} ${slotLabel}: ${label}${time ? ` - ${time}` : ''}${item.note ? ` (${item.note})` : ''}`;
     });
 
     const title = `Exam Schedule Announced: ${exam.name} - ${cls.displayName}`;

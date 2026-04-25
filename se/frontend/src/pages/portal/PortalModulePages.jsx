@@ -138,6 +138,59 @@ function StudentContextCard({ student, extra }) {
   );
 }
 
+const EXAM_CALENDAR_STYLES = {
+  exam_day: {
+    card: 'border-emerald-200 bg-emerald-50/80',
+    badge: 'bg-emerald-600 text-white',
+    label: 'Exam Day',
+  },
+  working_day: {
+    card: 'border-slate-200 bg-slate-50',
+    badge: 'bg-slate-600 text-white',
+    label: 'Working Day',
+  },
+  holiday: {
+    card: 'border-rose-200 bg-rose-50/80',
+    badge: 'bg-rose-600 text-white',
+    label: 'Holiday',
+  },
+  sunday: {
+    card: 'border-amber-200 bg-amber-50/80',
+    badge: 'bg-amber-600 text-white',
+    label: 'Sunday',
+  },
+  blocked_with_entry: {
+    card: 'border-red-300 bg-red-50/90',
+    badge: 'bg-red-700 text-white',
+    label: 'Conflict',
+  },
+  exam: {
+    card: 'border-emerald-200 bg-emerald-50/80',
+    badge: 'bg-emerald-600 text-white',
+    label: 'Exam',
+  },
+  revision: {
+    card: 'border-sky-200 bg-sky-50/80',
+    badge: 'bg-sky-600 text-white',
+    label: 'Revision',
+  },
+  no_session: {
+    card: 'border-slate-200 bg-slate-100',
+    badge: 'bg-slate-600 text-white',
+    label: 'No Session',
+  },
+  empty: {
+    card: 'border-slate-200 bg-white',
+    badge: 'bg-slate-500 text-white',
+    label: 'Empty',
+  },
+  no_exam: {
+    card: 'border-slate-200 bg-slate-50',
+    badge: 'bg-slate-600 text-white',
+    label: 'No Exam',
+  },
+};
+
 export function PortalStudentProfilePage({ viewerLabel = 'Student Profile' }) {
   const { data, loading } = usePortalData('/portal/overview', null);
 
@@ -553,7 +606,9 @@ export function PortalExamsPage() {
 
   if (loading) return <LoadingState label="Loading exams and marks..." />;
 
-  const { student, exams = [], schedules = [] } = data || {};
+  const { student, exams = [], calendarByExam = {} } = data || {};
+  const activeExamId = selectedExamId || exams[0]?._id || '';
+  const visibleCalendar = calendarByExam?.[activeExamId] || [];
 
   return (
     <div className="space-y-6">
@@ -591,21 +646,69 @@ export function PortalExamsPage() {
             </div>
           )}
         </DataCard>
-        <DataCard title="Exam Schedule">
-          {schedules.length === 0 ? (
-            <EmptyState title="No schedule published" description="Exam dates and subjects for this class will show here once published." />
+        <DataCard title="Exam Timetable">
+          {visibleCalendar.length === 0 ? (
+            <EmptyState title="No timetable published" description="Exam slots for this class will show here once published." />
           ) : (
             <div className="space-y-4">
-              {schedules.map(item => (
-                <div key={item._id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <p className="font-bold text-slate-900">{item.paperName || item.subject?.name || 'Subject'}</p>
-                  <p className="mt-1 text-sm text-slate-500">{item.exam?.name || 'Exam'} • {formatIndianDate(item.date)}</p>
-                  <p className="mt-1 text-sm text-slate-500">{item.startTime || '-'} to {item.endTime || '-'}</p>
-                  {item.componentSubjects?.length ? (
-                    <p className="mt-1 text-xs text-slate-500">{item.componentSubjects.map(subject => subject?.name).filter(Boolean).join(', ')}</p>
-                  ) : null}
-                </div>
-              ))}
+              {visibleCalendar.map(day => {
+                const style = EXAM_CALENDAR_STYLES[day.status] || EXAM_CALENDAR_STYLES.no_exam;
+                return (
+                  <div key={day.date} className={`rounded-2xl border p-4 ${style.card}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">{day.weekday}</p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">{formatIndianDate(day.date)}</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${style.badge}`}>
+                        {style.label}
+                      </span>
+                    </div>
+
+                    {day.isHoliday ? (
+                      <p className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-sm font-medium text-rose-700">
+                        {day.holidayReason || 'Holiday'}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {day.slots?.map(slot => (
+                        <div key={slot.key} className={`rounded-2xl border p-3 ${(EXAM_CALENDAR_STYLES[slot.status] || EXAM_CALENDAR_STYLES.no_exam).card}`}>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{slot.label}</p>
+                          {slot.entry?.slotType === 'exam' ? (
+                            <>
+                              <p className="mt-2 font-bold text-slate-900">{slot.entry.paperName || slot.entry.subject?.name || 'Subject'}</p>
+                              <p className="mt-1 text-sm text-slate-500">{[slot.entry.startTime, slot.entry.endTime].filter(Boolean).join(' - ') || 'Time pending'}</p>
+                              {slot.entry.componentSubjects?.length ? (
+                                <p className="mt-1 text-xs text-slate-500">{slot.entry.componentSubjects.map(subject => subject?.name).filter(Boolean).join(', ')}</p>
+                              ) : null}
+                              {slot.entry.hall ? <p className="mt-1 text-xs text-slate-500">Hall: {slot.entry.hall}</p> : null}
+                            </>
+                          ) : slot.entry?.slotType === 'revision' ? (
+                            <>
+                              <p className="mt-2 font-bold text-slate-900">Revision</p>
+                              <p className="mt-1 text-sm text-slate-500">{[slot.entry.startTime, slot.entry.endTime].filter(Boolean).join(' - ') || 'Time pending'}</p>
+                              {slot.entry.note ? <p className="mt-1 text-xs text-slate-500">{slot.entry.note}</p> : null}
+                            </>
+                          ) : slot.entry?.slotType === 'holiday' ? (
+                            <p className="mt-2 text-sm font-semibold text-rose-700">{slot.entry.note || 'Holiday'}</p>
+                          ) : slot.entry?.slotType === 'no_session' ? (
+                            <p className="mt-2 text-sm font-semibold text-slate-700">{slot.entry.note || 'No session'}</p>
+                          ) : (
+                            <p className="mt-2 text-sm text-slate-600">
+                              {slot.status === 'sunday'
+                                ? 'Sunday break'
+                                : slot.status === 'holiday'
+                                  ? (slot.note || 'Holiday')
+                                  : 'No slot scheduled'}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </DataCard>

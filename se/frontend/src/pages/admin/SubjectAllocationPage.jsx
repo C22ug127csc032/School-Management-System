@@ -120,7 +120,10 @@ export default function SubjectAllocationPage() {
     value: c._id,
     label: c.displayName || `Grade ${c.grade}-${c.section}`,
   }));
-  const subjectOptions = availSubjects.map(s => ({ value: s._id, label: `${s.name} (${s.code})` }));
+  const subjectOptions = availSubjects.map(s => ({
+    value: s._id,
+    label: `${s.name} (${s.code})${s.parentSubject?.name ? ` - ${s.parentSubject.name}` : ''}`,
+  }));
   const selectedClassObj = classInfo || classes.find(c => c._id === selectedClass) || null;
   const selectedSubjectObj = availSubjects.find(subject => subject._id === form.subjectId)
     || assignments.find(assignment => assignment.subject?._id === form.subjectId)?.subject
@@ -136,7 +139,7 @@ export default function SubjectAllocationPage() {
       const teacherSubjects = (teacher.eligibleSubjects || []).map(subject => String(subject?._id || subject));
 
       const matchesGradeLevel = !classGradeLevel || teacherGradeLevels.length === 0 || teacherGradeLevels.includes(classGradeLevel);
-      const matchesSubject = !subjectId || teacherSubjects.length === 0 || teacherSubjects.includes(String(subjectId));
+      const matchesSubject = !subjectId || teacherSubjects.includes(String(subjectId));
 
       return matchesGradeLevel && matchesSubject;
     });
@@ -169,7 +172,7 @@ export default function SubjectAllocationPage() {
     };
   }), [matchingTeachers, selectedClassObj]);
   const hasTeacherMatches = matchingTeachers.length > 0;
-  const teacherOptions = [{ value: '', label: 'No teacher yet' }, ...(hasTeacherMatches ? matchedTeacherOptions : fallbackTeacherOptions)];
+  const teacherOptions = [{ value: '', label: 'No teacher yet' }, ...matchedTeacherOptions];
   const totalPeriods = useMemo(
     () => assignments.reduce((sum, assignment) => sum + (assignment.periodsPerWeek || 0), 0),
     [assignments]
@@ -316,7 +319,10 @@ export default function SubjectAllocationPage() {
           <div className="form-group">
             <label className="label">Subject</label>
             <SearchableSelect options={editingAssignment
-              ? [{ value: editingAssignment.subject?._id, label: `${editingAssignment.subject?.name} (${editingAssignment.subject?.code})` }]
+              ? [{
+                  value: editingAssignment.subject?._id,
+                  label: `${editingAssignment.subject?.name} (${editingAssignment.subject?.code})${editingAssignment.subject?.parentSubject?.name ? ` - ${editingAssignment.subject.parentSubject.name}` : ''}`,
+                }]
               : subjectOptions} value={form.subjectId}
               onChange={v => setForm(f => ({ ...f, subjectId: v }))}
               placeholder="Select subject..."
@@ -335,11 +341,6 @@ export default function SubjectAllocationPage() {
             {form.subjectId && hasTeacherMatches && (
               <p className="mt-1 text-xs text-emerald-700">
                 Showing teachers eligible for {selectedSubjectObj?.name || 'the selected subject'} in {GRADE_LEVEL_LABELS[selectedClassObj?.gradeLevel] || 'this class level'}.
-              </p>
-            )}
-            {form.subjectId && !hasTeacherMatches && (
-              <p className="mt-1 text-xs text-amber-700">
-                No exact eligible teacher match found for {selectedSubjectObj?.name || 'this subject'}, so all teachers are shown as a fallback.
               </p>
             )}
           </div>

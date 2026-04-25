@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { FiPlus, FiEdit2, FiTrash2, FiBookOpen } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiBookOpen, FiChevronDown, FiChevronRight } from 'react-icons/fi';
 import api from '../../api/axios.js';
 import useListParams from '../../hooks/useListParams.js';
 import useAcademicYear from '../../hooks/useAcademicYear.js';
@@ -22,6 +22,11 @@ const GROUPS = [
 ];
 const TYPES = ['regular', 'lab', 'library', 'pt', 'assembly', 'activity', 'language'];
 const RESOURCES = [null, 'library', 'physics_lab', 'chemistry_lab', 'bio_lab', 'computer_lab', 'pt_ground'];
+const SUBJECT_ROLES = [
+  { value: 'standalone', label: 'Standalone Subject' },
+  { value: 'main', label: 'Main Subject' },
+  { value: 'sub', label: 'Sub Subject' },
+];
 const SUBJECT_SECTIONS = [
   { key: 'pre_primary', title: 'Pre Primary Subjects', description: 'Subjects added for pre-primary classes.' },
   { key: 'primary', title: 'Primary Subjects', description: 'Subjects added for primary classes.' },
@@ -36,6 +41,8 @@ const SUBJECT_SECTIONS = [
 const empty = {
   name: '',
   code: '',
+  subjectRole: 'standalone',
+  parentSubject: '',
   type: 'regular',
   periodsPerWeek: 5,
   color: '#4F46E5',
@@ -45,6 +52,8 @@ const empty = {
   resourceType: null,
 };
 
+const getParentSubjectId = subject => String(subject?.parentSubject?._id || subject?.parentSubject || '');
+
 export default function SubjectsPage() {
   const academicYear = useAcademicYear();
   const { isTeacherRole, isClassTeacherRole, teacherId, classTeacherOf, eligibleSubjectIds, teacher } = useTeacherScope();
@@ -52,6 +61,7 @@ export default function SubjectsPage() {
   const [teacherAssignments, setTeacherAssignments] = useState([]);
   const [classAssignments, setClassAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedSubjects, setExpandedSubjects] = useState({});
   const [modal, setModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState(empty);
@@ -104,11 +114,25 @@ export default function SubjectsPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    setExpandedSubjects(current => {
+      const next = { ...current };
+      subjects.forEach(subject => {
+        if (subject.subjectRole === 'main' && next[subject._id] === undefined) {
+          next[subject._id] = true;
+        }
+      });
+      return next;
+    });
+  }, [subjects]);
+
   const openModal = (subject = null) => {
     if (subject) {
       setForm({
         ...empty,
         ...subject,
+        subjectRole: subject.subjectRole || 'standalone',
+        parentSubject: getParentSubjectId(subject),
         applicableGradeLevels: subject.applicableGradeLevels || [],
         applicableGroups: subject.applicableGroups || [],
       });
@@ -128,19 +152,32 @@ export default function SubjectsPage() {
       : [...current[key], value],
   }));
 
+  const toggleExpanded = subjectId => setExpandedSubjects(current => ({
+    ...current,
+    [subjectId]: !current[subjectId],
+  }));
+
   const handleSave = async () => {
     if (!form.name || !form.code || !form.applicableGradeLevels.length) {
       toast.error('Name, code, and at least one grade level required.');
       return;
     }
+    if (form.subjectRole === 'sub' && !form.parentSubject) {
+      toast.error('Choose the main subject for this sub subject.');
+      return;
+    }
 
     setSaving(true);
     try {
+      const payload = {
+        ...form,
+        parentSubject: form.subjectRole === 'sub' ? form.parentSubject : null,
+      };
       if (editItem) {
-        await api.put(`/subjects/${editItem._id}`, form);
+        await api.put(`/subjects/${editItem._id}`, payload);
         toast.success('Subject updated.');
       } else {
-        await api.post('/subjects', form);
+        await api.post('/subjects', payload);
         toast.success('Subject created.');
       }
 
@@ -154,10 +191,22 @@ export default function SubjectsPage() {
   };
 
   const handleDelete = async id => {
-    if (!window.confirm('Deactivate this subject?')) return;
+    if (!window.confirm('Delete this subject permanently? This cannot be undone.')) return;
 
     try {
       await api.delete(`/subjects/${id}`);
+      toast.success('Subject deleted.');
+      load();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed.');
+    }
+  };
+
+  const handleDeactivate = async id => {
+    if (!window.confirm('Deactivate this subject? It will be hidden from active subject lists.')) return;
+
+    try {
+      await api.put(`/subjects/${id}/deactivate`);
       toast.success('Subject deactivated.');
       load();
     } catch (error) {
@@ -166,6 +215,16 @@ export default function SubjectsPage() {
   };
 
   const hsSubjects = form.applicableGradeLevels.includes('higher_secondary');
+  const parentSubjectOptions = useMemo(() => subjects
+    .filter(subject => {
+      if (editItem && String(subject._id) === String(editItem._id)) return false;
+      return subject.subjectRole === 'main';
+    })
+    .map(subject => ({
+      value: subject._id,
+      label: `${subject.name}${subject.code ? ` (${subject.code})` : ''}${subject.subjectRole === 'main' ? ' - Main Subject' : ''}`,
+    })), [subjects, editItem]);
+
   const filteredSubjects = useMemo(() => applyClientListOperations({
     data: subjects,
     search,
@@ -196,9 +255,20 @@ export default function SubjectsPage() {
         );
     });
 
+    const topLevelSubjects = sectionSubjects.filter(subject => {
+      const parentId = getParentSubjectId(subject);
+      return !parentId || !sectionSubjects.some(item => String(item._id) === parentId);
+    });
+
+    const subjectsWithChildren = topLevelSubjects.map(subject => ({
+      ...subject,
+      children: sectionSubjects.filter(item => getParentSubjectId(item) === String(subject._id)),
+    }));
+
     return {
       ...section,
-      subjects: sectionSubjects,
+      subjects: subjectsWithChildren,
+      flatCount: sectionSubjects.length,
       totalPeriods: sectionSubjects.reduce((sum, subject) => sum + (subject.periodsPerWeek || 0), 0),
     };
   }).filter(section => section.subjects.length > 0), [filteredSubjects]);
@@ -421,7 +491,7 @@ export default function SubjectsPage() {
                 <div className="flex gap-3">
                   <div className="rounded border border-border bg-slate-50 px-4 py-2 text-right">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Subjects</p>
-                    <p className="mt-1 text-lg font-bold text-text-primary">{section.subjects.length}</p>
+                    <p className="mt-1 text-lg font-bold text-text-primary">{section.flatCount}</p>
                   </div>
                   <div className="rounded border border-border bg-slate-50 px-4 py-2 text-right">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Periods/Week</p>
@@ -433,25 +503,71 @@ export default function SubjectsPage() {
 
             <div className="divide-y divide-border">
               {section.subjects.map(subject => (
-                <div key={`${section.key}-${subject._id}`} className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start gap-3">
-                      <span className="mt-1 h-3.5 w-3.5 shrink-0 border" style={{ background: subject.color }} />
-                      <div className="min-w-0">
-                        <p className="font-semibold text-text-primary">{subject.name}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-text-secondary">{subject.code}</span>
-                          <span className="badge-blue">{subject.type}</span>
-                          <span className="badge-gray">{subject.periodsPerWeek} periods/week</span>
+                <div key={`${section.key}-${subject._id}`} className="px-5 py-4">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        disabled={!subject.children?.length}
+                        onClick={() => subject.children?.length && toggleExpanded(subject._id)}
+                        className={`flex w-full items-start gap-3 text-left ${subject.children?.length ? 'cursor-pointer' : 'cursor-default'}`}
+                      >
+                        <span className="mt-1 h-3.5 w-3.5 shrink-0 border" style={{ background: subject.color }} />
+                        {subject.children?.length ? (
+                          expandedSubjects[subject._id] ? <FiChevronDown className="mt-0.5 shrink-0 text-slate-400" /> : <FiChevronRight className="mt-0.5 shrink-0 text-slate-400" />
+                        ) : null}
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-text-primary">{subject.name}</p>
+                            <span className={subject.subjectRole === 'main' ? 'badge-green' : subject.subjectRole === 'sub' ? 'badge-amber' : 'badge-blue'}>
+                              {subject.subjectRole === 'main' ? 'Main Subject' : subject.subjectRole === 'sub' ? 'Sub Subject' : 'Standalone'}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-text-secondary">{subject.code}</span>
+                            <span className="badge-blue">{subject.type}</span>
+                            <span className="badge-gray">{subject.periodsPerWeek} periods/week</span>
+                            {subject.children?.length ? <span className="badge-gray">{subject.children.length} sub subjects</span> : null}
+                          </div>
                         </div>
-                      </div>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => handleDeactivate(subject._id)} className="btn-secondary btn-sm" title="Deactivate subject">Deactivate</button>
+                      <button onClick={() => openModal(subject)} className="btn-icon btn-sm" title="Edit subject"><FiEdit2 /></button>
+                      <button onClick={() => handleDelete(subject._id)} className="btn-icon btn-sm text-red-600" title="Delete subject"><FiTrash2 /></button>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-1">
-                    <button onClick={() => openModal(subject)} className="btn-icon btn-sm" title="Edit subject"><FiEdit2 /></button>
-                    <button onClick={() => handleDelete(subject._id)} className="btn-icon btn-sm text-red-600" title="Deactivate subject"><FiTrash2 /></button>
-                  </div>
+                  {subject.children?.length && expandedSubjects[subject._id] ? (
+                    <div className="mt-4 ml-6 space-y-2 border-l-2 border-slate-100 pl-4">
+                      {subject.children.map(child => (
+                        <div key={child._id} className="flex flex-col gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start gap-3">
+                              <span className="mt-1 h-3.5 w-3.5 shrink-0 border" style={{ background: child.color }} />
+                              <div className="min-w-0">
+                                <p className="font-semibold text-text-primary">{child.name}</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-text-secondary">{child.code}</span>
+                                  <span className="badge-amber">Sub Subject</span>
+                                  <span className="badge-green">Under {subject.name}</span>
+                                  <span className="badge-gray">{child.periodsPerWeek} periods/week</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-1">
+                            <button onClick={() => handleDeactivate(child._id)} className="btn-secondary btn-sm" title="Deactivate subject">Deactivate</button>
+                            <button onClick={() => openModal(child)} className="btn-icon btn-sm" title="Edit subject"><FiEdit2 /></button>
+                            <button onClick={() => handleDelete(child._id)} className="btn-icon btn-sm text-red-600" title="Delete subject"><FiTrash2 /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -475,9 +591,31 @@ export default function SubjectsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="form-group"><label className="label">Subject Name *</label><input className="input" value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} /></div>
             <div className="form-group"><label className="label">Subject Code *</label><input className="input" placeholder="e.g. MATH" value={form.code} onChange={event => setForm(current => ({ ...current, code: event.target.value.toUpperCase() }))} /></div>
+            <div className="form-group">
+              <label className="label">Subject Structure</label>
+              <select className="input" value={form.subjectRole} onChange={event => setForm(current => ({ ...current, subjectRole: event.target.value, parentSubject: event.target.value === 'sub' ? current.parentSubject : '' }))}>
+                {SUBJECT_ROLES.map(role => <option key={role.value} value={role.value}>{role.label}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+                  <label className="label">Main Subject</label>
+                  <select className="input" value={form.parentSubject} disabled={form.subjectRole !== 'sub'} onChange={event => setForm(current => ({ ...current, parentSubject: event.target.value }))}>
+                    <option value="">Select main subject...</option>
+                    {parentSubjectOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  {form.subjectRole === 'sub' && form.parentSubject ? (
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Main subject selected: <span className="font-semibold text-text-primary">{parentSubjectOptions.find(option => option.value === form.parentSubject)?.label || '-'}</span>
+                    </p>
+                  ) : null}
+                </div>
             <div className="form-group"><label className="label">Type</label><select className="input" value={form.type} onChange={event => setForm(current => ({ ...current, type: event.target.value }))}>{TYPES.map(type => <option key={type} value={type}>{type}</option>)}</select></div>
             <div className="form-group"><label className="label">Periods Per Week</label><input type="number" className="input" min="1" max="10" value={form.periodsPerWeek} onChange={event => setForm(current => ({ ...current, periodsPerWeek: Number(event.target.value) }))} /></div>
             <div className="form-group"><label className="label">Color</label><input type="color" className="input h-11 cursor-pointer" value={form.color} onChange={event => setForm(current => ({ ...current, color: event.target.value }))} /></div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Use <strong>Main Subject</strong> for papers like Science or Social Science, then create the child subjects such as Physics, Chemistry, Biology, History, Geography, and Civics as <strong>Sub Subject</strong>.
           </div>
 
           <div className="form-group">

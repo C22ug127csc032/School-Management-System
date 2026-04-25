@@ -106,15 +106,25 @@ const examScheduleSchema = new mongoose.Schema({
   class:   { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
   subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', default: null },
   scheduleType: { type: String, enum: ['test', 'exam'], default: 'test' },
-  paperName: { type: String, required: true, trim: true },
+  day: { type: String, enum: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'], default: undefined },
+  period: { type: mongoose.Schema.Types.ObjectId, ref: 'Period', default: null },
+  endPeriod: { type: mongoose.Schema.Types.ObjectId, ref: 'Period', default: null },
+  slotName: { type: String, trim: true, default: '' },
+  slotType: { type: String, enum: ['exam', 'revision', 'holiday', 'no_session'], default: 'exam' },
+  paperName: { type: String, trim: true, default: '' },
   componentSubjects: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Subject' }],
-  date:    { type: Date, required: true },
+  date:    { type: Date, default: null },
   startTime: { type: String },
   endTime:   { type: String },
   maxMarks:  { type: Number, default: 100 },
   passMarks: { type: Number, default: 35 },
   hall:      { type: String },
+  note:      { type: String, trim: true, default: '' },
 }, { timestamps: true });
+
+examScheduleSchema.index({ exam: 1, class: 1, day: 1, period: 1 }, { unique: true, sparse: true });
+examScheduleSchema.index({ exam: 1, class: 1, date: 1, period: 1 }, { unique: true, sparse: true });
+examScheduleSchema.index({ exam: 1, class: 1, date: 1, slotName: 1 }, { unique: true, sparse: true });
 
 export const ExamSchedule = mongoose.model('ExamSchedule', examScheduleSchema);
 

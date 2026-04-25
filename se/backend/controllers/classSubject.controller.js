@@ -36,7 +36,11 @@ export const getTeacherClassSubjects = async (req, res) => {
     if (classId) query.class = classId;
 
     const assignments = await ClassSubject.find(query)
-      .populate('subject', 'name code color type applicableGradeLevels applicableGroups')
+      .populate({
+        path: 'subject',
+        select: 'name code color type subjectRole parentSubject applicableGradeLevels applicableGroups',
+        populate: { path: 'parentSubject', select: 'name code subjectRole color' },
+      })
       .populate('teacher', 'firstName lastName employeeId')
       .populate('class', 'grade section displayName groupName gradeLevel')
       .sort({ createdAt: 1 });
@@ -85,7 +89,12 @@ export const assignSubject = async (req, res) => {
       existing.periodsPerWeek = periodsPerWeek || 5;
       await existing.save();
       const populated = await ClassSubject.findById(existing._id)
-        .populate('subject','name code color type').populate('teacher','firstName lastName employeeId');
+        .populate({
+          path: 'subject',
+          select: 'name code color type subjectRole parentSubject',
+          populate: { path: 'parentSubject', select: 'name code subjectRole color' },
+        })
+        .populate('teacher','firstName lastName employeeId');
       return res.json({ success: true, data: populated, message: 'Subject assignment restored.' });
     }
 
@@ -97,7 +106,11 @@ export const assignSubject = async (req, res) => {
     });
 
     const populated = await ClassSubject.findById(assignment._id)
-      .populate('subject','name code color type')
+      .populate({
+        path: 'subject',
+        select: 'name code color type subjectRole parentSubject',
+        populate: { path: 'parentSubject', select: 'name code subjectRole color' },
+      })
       .populate('teacher','firstName lastName employeeId');
 
     res.status(201).json({ success: true, data: populated, message: 'Subject assigned to class.' });
@@ -137,7 +150,11 @@ export const updateClassSubject = async (req, res) => {
     await assignment.save();
 
     const populated = await ClassSubject.findById(assignment._id)
-      .populate('subject','name code color type')
+      .populate({
+        path: 'subject',
+        select: 'name code color type subjectRole parentSubject',
+        populate: { path: 'parentSubject', select: 'name code subjectRole color' },
+      })
       .populate('teacher','firstName lastName employeeId');
     res.json({ success: true, data: populated, message: 'Assignment updated.' });
   } catch (err) {
@@ -170,7 +187,12 @@ export const getAvailableSubjectsForClass = async (req, res) => {
     const assignedIds = assigned.map(a => String(a.subject));
 
     // Build subject query based on class
-    const query = { isActive: true, applicableGradeLevels: cls.gradeLevel, _id: { $nin: assignedIds } };
+    const query = {
+      isActive: true,
+      applicableGradeLevels: cls.gradeLevel,
+      _id: { $nin: assignedIds },
+      subjectRole: { $ne: 'main' },
+    };
 
     if (cls.classType === 'group' && cls.groupName) {
       // For group classes: return common subjects + group-specific subjects for THIS group
@@ -181,7 +203,7 @@ export const getAvailableSubjectsForClass = async (req, res) => {
       ];
     }
 
-    const subjects = await Subject.find(query).sort({ name: 1 });
+    const subjects = await Subject.find(query).populate('parentSubject', 'name code subjectRole').sort({ name: 1 });
     res.json({ success: true, data: subjects, classInfo: cls });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

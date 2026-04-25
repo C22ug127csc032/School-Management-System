@@ -36,6 +36,7 @@ subjectRoutes.get('/',     allStaff,  subjectCtrl.getSubjects);
 subjectRoutes.get('/:id', allStaff,  subjectCtrl.getSubjectById);
 subjectRoutes.post('/',    adminOnly, subjectCtrl.createSubject);
 subjectRoutes.put('/:id', adminOnly, subjectCtrl.updateSubject);
+subjectRoutes.put('/:id/deactivate', adminOnly, subjectCtrl.deactivateSubject);
 subjectRoutes.delete('/:id', adminOnly, subjectCtrl.deleteSubject);
 
 // ── Teachers ──────────────────────────────────────────────────────────────────

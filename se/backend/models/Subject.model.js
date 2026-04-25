@@ -7,6 +7,16 @@ import mongoose from 'mongoose';
 const subjectSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   code: { type: String, required: true, unique: true, uppercase: true },
+  subjectRole: {
+    type: String,
+    enum: ['standalone', 'main', 'sub'],
+    default: 'standalone',
+  },
+  parentSubject: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Subject',
+    default: null,
+  },
   type: {
     type: String,
     enum: ['regular', 'lab', 'library', 'pt', 'assembly', 'activity', 'language'],
@@ -47,6 +57,9 @@ const subjectSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 subjectSchema.pre('save', function (next) {
+  if (this.subjectRole !== 'sub') {
+    this.parentSubject = null;
+  }
   this.isGroupSpecific = this.applicableGroups && this.applicableGroups.length > 0;
   next();
 });
@@ -54,13 +67,20 @@ subjectSchema.pre('save', function (next) {
 subjectSchema.pre('findOneAndUpdate', function (next) {
   const update = this.getUpdate() || {};
   const nextGroups = update.applicableGroups ?? update.$set?.applicableGroups;
+  const nextRole = update.subjectRole ?? update.$set?.subjectRole;
 
   if (nextGroups !== undefined) {
     const isGroupSpecific = Array.isArray(nextGroups) && nextGroups.length > 0;
     update.isGroupSpecific = isGroupSpecific;
     update.$set = { ...(update.$set || {}), isGroupSpecific };
-    this.setUpdate(update);
   }
+
+  if (nextRole && nextRole !== 'sub') {
+    update.parentSubject = null;
+    update.$set = { ...(update.$set || {}), parentSubject: null };
+  }
+
+  this.setUpdate(update);
 
   next();
 });
