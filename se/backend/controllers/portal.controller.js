@@ -7,6 +7,8 @@ import { Payment, Ledger } from '../models/Payment.model.js';
 import { Leave, Circular, Homework, Exam, ExamSchedule, Mark } from '../models/Academic.model.js';
 import { BookIssue } from '../models/Operations.model.js';
 import { getActivePeriodsForDisplay } from '../utils/periods.js';
+import { getSettings } from '../utils/appSettings.js';
+import { fetchGovernmentHolidayRecords, mergeHolidayRecords } from '../utils/holidayCalendar.js';
 
 const PORTAL_ROLES = ['parent', 'student'];
 const INDIA_TIMEZONE = 'Asia/Kolkata';
@@ -88,6 +90,7 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
       isSunday,
       isHoliday,
       holidayReason,
+      blockedLabel: isHoliday ? holidayReason : (isSunday ? 'Sunday' : ''),
       status: isHoliday ? 'holiday' : (isSunday ? 'sunday' : 'working_day'),
       slots,
     });
@@ -573,6 +576,8 @@ export const getPortalExams = async (req, res) => {
       };
     }, { min: null, max: null });
 
+    const settings = await getSettings();
+
     const [schedules, marks, holidayRecords] = await Promise.all([
       student.classRef?._id
         ? ExamSchedule.find({ class: student.classRef._id, exam: { $in: examIds } })
@@ -583,11 +588,18 @@ export const getPortalExams = async (req, res) => {
         : [],
       Mark.find({ student: student._id, exam: { $in: examIds } }).select('exam marksObtained maxMarks isPassed isAbsent'),
       student.classRef?._id && dateBounds.min && dateBounds.max
-        ? Attendance.find({
-          class: student.classRef._id,
-          isHoliday: true,
-          date: { $gte: dateBounds.min, $lte: dateBounds.max },
-        }).select('date holidayReason')
+        ? mergeHolidayRecords(
+          await Attendance.find({
+            class: student.classRef._id,
+            isHoliday: true,
+            date: { $gte: dateBounds.min, $lte: dateBounds.max },
+          }).select('date holidayReason'),
+          await fetchGovernmentHolidayRecords({
+            startDate: dateBounds.min,
+            endDate: dateBounds.max,
+            calendarUrl: settings?.governmentHolidayCalendarUrl,
+          }),
+        )
         : [],
     ]);
 

@@ -43,6 +43,7 @@ import HomeworkPage from './pages/admin/HomeworkPage.jsx';
 import ExamsPage from './pages/admin/ExamsPage.jsx';
 import ExamSchedulePage from './pages/admin/ExamSchedulePage.jsx';
 import ReportCardsPage from './pages/admin/ReportCardsPage.jsx';
+import ReportsPage from './pages/admin/ReportsPage.jsx';
 import SettingsPage from './pages/admin/SettingsPage.jsx';
 import StaffPage from './pages/admin/StaffPage.jsx';
 import UnderConstructionPage from './pages/admin/UnderConstructionPage.jsx';
@@ -115,7 +116,7 @@ function AppRoutes() {
 
         <Route path="staff" element={<ProtectedRoute allowedRoles={STAFF_MANAGERS}><StaffPage /></ProtectedRoute>} />
         <Route path="settings" element={<ProtectedRoute allowedRoles={SETTINGS_MANAGERS}><SettingsPage /></ProtectedRoute>} />
-        <Route path="reports" element={<ProtectedRoute allowedRoles={ACCESS.reports}><ReportCardsPage /></ProtectedRoute>} />
+        <Route path="reports" element={<ProtectedRoute allowedRoles={ACCESS.reports}><ReportsPage /></ProtectedRoute>} />
       </Route>
 
       <Route path="/student" element={

@@ -128,51 +128,25 @@ export default function SubjectAllocationPage() {
   const selectedSubjectObj = availSubjects.find(subject => subject._id === form.subjectId)
     || assignments.find(assignment => assignment.subject?._id === form.subjectId)?.subject
     || null;
-  const matchingTeachers = useMemo(() => {
+  const gradeEligibleTeachers = useMemo(() => {
     if (!selectedClassObj) return teachers;
 
     const classGradeLevel = selectedClassObj.gradeLevel;
-    const subjectId = form.subjectId;
 
     return teachers.filter(teacher => {
       const teacherGradeLevels = teacher.eligibleGradeLevels || [];
-      const teacherSubjects = (teacher.eligibleSubjects || []).map(subject => String(subject?._id || subject));
-
       const matchesGradeLevel = !classGradeLevel || teacherGradeLevels.length === 0 || teacherGradeLevels.includes(classGradeLevel);
-      const matchesSubject = !subjectId || teacherSubjects.includes(String(subjectId));
-
-      return matchesGradeLevel && matchesSubject;
-    });
-  }, [teachers, selectedClassObj, form.subjectId]);
-  const fallbackTeacherOptions = useMemo(() => {
-    const classGradeLevel = selectedClassObj?.gradeLevel;
-    return teachers.map(teacher => {
-      const subjectCodes = (teacher.eligibleSubjects || []).map(subject => subject?.code || subject?.name).filter(Boolean).slice(0, 2);
-      const gradeLabel = classGradeLevel && (teacher.eligibleGradeLevels || []).includes(classGradeLevel)
-        ? `Eligible for ${GRADE_LEVEL_LABELS[classGradeLevel] || classGradeLevel}`
-        : '';
-      const suffixParts = [gradeLabel, subjectCodes.length ? subjectCodes.join(', ') : 'All subjects'];
-
-      return {
-        value: teacher._id,
-        label: `${teacher.firstName} ${teacher.lastName}${suffixParts.length ? ` — ${suffixParts.filter(Boolean).join(' • ')}` : ''}`,
-      };
+      return matchesGradeLevel;
     });
   }, [teachers, selectedClassObj]);
-  const matchedTeacherOptions = useMemo(() => matchingTeachers.map(teacher => {
-    const subjectCodes = (teacher.eligibleSubjects || []).map(subject => subject?.code || subject?.name).filter(Boolean).slice(0, 2);
-    const suffixParts = [
-      selectedClassObj?.gradeLevel ? `Eligible for ${GRADE_LEVEL_LABELS[selectedClassObj.gradeLevel] || selectedClassObj.gradeLevel}` : '',
-      subjectCodes.length ? subjectCodes.join(', ') : 'All subjects',
-    ];
-
+  const teacherOptions = useMemo(() => [{ value: '', label: 'No teacher yet' }, ...gradeEligibleTeachers.map(teacher => {
+    const departmentLabel = teacher.department?.trim() || 'No Department';
     return {
       value: teacher._id,
-      label: `${teacher.firstName} ${teacher.lastName}${suffixParts.filter(Boolean).length ? ` — ${suffixParts.filter(Boolean).join(' • ')}` : ''}`,
+      label: `${teacher.firstName} ${teacher.lastName} (${departmentLabel})`,
     };
-  }), [matchingTeachers, selectedClassObj]);
-  const hasTeacherMatches = matchingTeachers.length > 0;
-  const teacherOptions = [{ value: '', label: 'No teacher yet' }, ...matchedTeacherOptions];
+  })], [gradeEligibleTeachers]);
+  const hasTeacherMatches = gradeEligibleTeachers.length > 0;
   const totalPeriods = useMemo(
     () => assignments.reduce((sum, assignment) => sum + (assignment.periodsPerWeek || 0), 0),
     [assignments]
@@ -340,7 +314,7 @@ export default function SubjectAllocationPage() {
               onChange={v => setForm(f => ({ ...f, teacherId: v }))} placeholder="Select teacher (optional)..." />
             {form.subjectId && hasTeacherMatches && (
               <p className="mt-1 text-xs text-emerald-700">
-                Showing teachers eligible for {selectedSubjectObj?.name || 'the selected subject'} in {GRADE_LEVEL_LABELS[selectedClassObj?.gradeLevel] || 'this class level'}.
+                Showing all teachers added for {GRADE_LEVEL_LABELS[selectedClassObj?.gradeLevel] || 'this class level'}. 
               </p>
             )}
           </div>

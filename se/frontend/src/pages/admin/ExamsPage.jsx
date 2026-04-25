@@ -1,18 +1,60 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { FiBookOpen, FiEdit2, FiSave } from 'react-icons/fi';
+import { FiBookOpen, FiEdit2, FiSave, FiTrash2 } from 'react-icons/fi';
 import api from '../../api/axios.js';
-import { EmptyState, Modal, PageHeader, PageLoader, SearchableSelect, StatusBadge } from '../../components/common/index.jsx';
+import { EmptyState, PageHeader, PageLoader, SearchableSelect, StatusBadge } from '../../components/common/index.jsx';
 import useAcademicYear from '../../hooks/useAcademicYear.js';
 import useTeacherScope from '../../hooks/useTeacherScope.js';
 
+const normalizeText = value => String(value || '').trim().toLowerCase();
+const getMarksSelectableSubjects = subjects => {
+  const byId = new Map();
+
+  subjects.forEach(subject => {
+    if (!subject) return;
+    if (subject.subjectRole === 'sub') {
+      const parent = subject.parentSubject;
+      if (parent?._id) byId.set(String(parent._id), { ...parent, _id: parent._id });
+      return;
+    }
+    if (subject._id) byId.set(String(subject._id), subject);
+  });
+
+  return [...byId.values()];
+};
+
+const isSocialScienceSubject = subject => {
+  const value = normalizeText(`${subject?.name || ''} ${subject?.code || ''}`);
+  return value.includes('social science') || value.includes('socialscience');
+};
+
+const isScienceSubject = subject => {
+  const value = normalizeText(`${subject?.name || ''} ${subject?.code || ''}`);
+  return !isSocialScienceSubject(subject) && value.includes('science');
+};
+
+const getMarksStructure = subject => (
+  isScienceSubject(subject)
+    ? { theoryMaxMarks: 75, assessmentMaxMarks: 25, assessmentLabel: 'Practical / Internal' }
+    : { theoryMaxMarks: 90, assessmentMaxMarks: 10, assessmentLabel: 'Internal' }
+);
+
 const createEmptyEntry = subjectId => ({
   subjectId,
-  marksObtained: '',
-  maxMarks: 100,
+  theoryMarks: '',
+  theoryMaxMarks: 90,
+  assessmentMarks: '',
+  assessmentMaxMarks: 10,
   isAbsent: false,
   remarks: '',
 });
+
+const clampMarksInput = (value, maxMarks) => {
+  if (value === '') return '';
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return '';
+  return String(Math.max(0, Math.min(numericValue, Number(maxMarks) || 0)));
+};
 
 const getSelectionStorageKey = academicYear => `exam-marks-selection:${academicYear}`;
 
@@ -28,6 +70,7 @@ export default function ExamsPage() {
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [markEntries, setMarkEntries] = useState({});
   const [savedMarks, setSavedMarks] = useState([]);
+  const [studentMarksStatus, setStudentMarksStatus] = useState({});
   const [hasSavedMarks, setHasSavedMarks] = useState(false);
   const [isEditMode, setIsEditMode] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -138,6 +181,12 @@ export default function ExamsPage() {
     }).finally(() => setStudentLoading(false));
   }, [selectedClassId, academicYear, isTeacherRole, isClassTeacherRole, teacherId, classTeacherOf]);
 
+  const markSubjects = useMemo(() => getMarksSelectableSubjects(classSubjects.map(item => item.subject).filter(Boolean)).map(subject => ({
+    subject,
+    subjectId: String(subject._id),
+    structure: getMarksStructure(subject),
+  })), [classSubjects]);
+
   useEffect(() => {
     if (!selectedExamId || !selectedClassId || !selectedStudentId) {
       setSavedMarks([]);
@@ -163,14 +212,15 @@ export default function ExamsPage() {
         setIsEditMode(nextMarks.length === 0);
 
         const nextEntries = {};
-        classSubjects.forEach(item => {
-          const subjectId = String(item.subject?._id || '');
-          if (!subjectId) return;
+        markSubjects.forEach(item => {
+          const subjectId = item.subjectId;
           const existing = nextMarks.find(mark => String(mark.subject?._id || mark.subject) === subjectId);
           nextEntries[subjectId] = {
             subjectId,
-            marksObtained: existing?.marksObtained ?? '',
-            maxMarks: existing?.maxMarks ?? 100,
+            theoryMarks: existing?.theoryMarks ?? '',
+            theoryMaxMarks: existing?.theoryMaxMarks ?? item.structure.theoryMaxMarks,
+            assessmentMarks: existing?.assessmentMarks ?? '',
+            assessmentMaxMarks: existing?.assessmentMaxMarks ?? item.structure.assessmentMaxMarks,
             isAbsent: existing?.isAbsent ?? false,
             remarks: existing?.remarks ?? '',
           };
@@ -179,14 +229,49 @@ export default function ExamsPage() {
       })
       .catch(() => toast.error('Failed to load marks.'))
       .finally(() => setMarksLoading(false));
-  }, [selectedExamId, selectedClassId, selectedStudentId, classSubjects, academicYear]);
+  }, [selectedExamId, selectedClassId, selectedStudentId, markSubjects, academicYear]);
+
+  useEffect(() => {
+    if (!selectedExamId || !selectedClassId) {
+      setStudentMarksStatus({});
+      return;
+    }
+
+    api.get('/exams/marks', {
+      params: {
+        examId: selectedExamId,
+        classId: selectedClassId,
+        academicYear,
+      },
+    })
+      .then(response => {
+        const nextStatus = {};
+        (response.data.data || []).forEach(mark => {
+          const studentId = String(mark.student?._id || mark.student || '');
+          if (studentId) nextStatus[studentId] = true;
+        });
+        setStudentMarksStatus(nextStatus);
+      })
+      .catch(() => {
+        setStudentMarksStatus({});
+      });
+  }, [selectedExamId, selectedClassId, academicYear]);
 
   const handleMarkChange = (subjectId, key, value) => {
+    const currentEntry = markEntries[subjectId] || createEmptyEntry(subjectId);
+    let nextValue = value;
+
+    if (key === 'theoryMarks') {
+      nextValue = clampMarksInput(value, currentEntry.theoryMaxMarks);
+    } else if (key === 'assessmentMarks') {
+      nextValue = clampMarksInput(value, currentEntry.assessmentMaxMarks);
+    }
+
     setMarkEntries(current => ({
       ...current,
       [subjectId]: {
         ...(current[subjectId] || createEmptyEntry(subjectId)),
-        [key]: value,
+        [key]: nextValue,
       },
     }));
   };
@@ -196,10 +281,9 @@ export default function ExamsPage() {
       return toast.error('Select exam, class, and student first.');
     }
 
-    const payload = classSubjects
-      .filter(item => item.subject?._id)
+    const payload = markSubjects
       .map(item => {
-        const subjectId = String(item.subject._id);
+        const subjectId = item.subjectId;
         const entry = markEntries[subjectId] || createEmptyEntry(subjectId);
         return {
           examId: selectedExamId,
@@ -207,8 +291,10 @@ export default function ExamsPage() {
           subjectId,
           classId: selectedClassId,
           academicYear,
-          marksObtained: Number(entry.marksObtained || 0),
-          maxMarks: Number(entry.maxMarks || 100),
+          theoryMarks: Number(entry.theoryMarks || 0),
+          theoryMaxMarks: Number(entry.theoryMaxMarks || item.structure.theoryMaxMarks),
+          assessmentMarks: Number(entry.assessmentMarks || 0),
+          assessmentMaxMarks: Number(entry.assessmentMaxMarks || item.structure.assessmentMaxMarks),
           isAbsent: Boolean(entry.isAbsent),
           remarks: entry.remarks || '',
         };
@@ -220,6 +306,10 @@ export default function ExamsPage() {
       toast.success(response.data.message || 'Marks saved.');
       setHasSavedMarks(true);
       setIsEditMode(false);
+      setStudentMarksStatus(current => ({
+        ...current,
+        [String(selectedStudentId)]: true,
+      }));
 
       const refreshed = await api.get('/exams/marks', {
         params: {
@@ -237,11 +327,57 @@ export default function ExamsPage() {
     }
   };
 
+  const handleDeleteMarks = async () => {
+    if (!selectedExamId || !selectedClassId || !selectedStudentId) {
+      return toast.error('Select exam, class, and student first.');
+    }
+
+    if (!savedMarks.length) {
+      return toast.error('No saved marks found to delete.');
+    }
+
+    const confirmDelete = window.confirm(`Delete all saved marks for ${selectedExam?.name || 'this exam'} for the selected student?`);
+    if (!confirmDelete) return;
+
+    try {
+      await api.delete('/exams/marks', {
+        params: {
+          examId: selectedExamId,
+          classId: selectedClassId,
+          studentId: selectedStudentId,
+          academicYear,
+        },
+      });
+      setSavedMarks([]);
+      setHasSavedMarks(false);
+      setIsEditMode(true);
+      setStudentMarksStatus(current => ({
+        ...current,
+        [String(selectedStudentId)]: false,
+      }));
+      setMarkEntries(current => {
+        const resetEntries = {};
+        markSubjects.forEach(item => {
+          resetEntries[item.subjectId] = {
+            ...createEmptyEntry(item.subjectId),
+            theoryMaxMarks: item.structure.theoryMaxMarks,
+            assessmentMaxMarks: item.structure.assessmentMaxMarks,
+          };
+        });
+        return resetEntries;
+      });
+      toast.success('Saved marks deleted.');
+    } catch (error) {
+      toast.error(error?.response?.data?.message || 'Failed to delete saved marks.');
+    }
+  };
+
   const classOptions = classes.map(item => ({ value: item._id, label: item.displayName || `Grade ${item.grade}-${item.section}` }));
   const examOptions = exams.map(item => ({ value: item._id, label: item.name }));
   const studentOptions = students.map(item => ({
     value: item._id,
     label: `${item.firstName} ${item.lastName}${item.rollNo ? ` (${item.rollNo})` : ''}`,
+    hasMarks: Boolean(studentMarksStatus[String(item._id)]),
   }));
 
   const selectedExam = exams.find(item => String(item._id) === String(selectedExamId));
@@ -251,19 +387,18 @@ export default function ExamsPage() {
   const inputsDisabled = savingMarks || (hasSavedMarks && !isEditMode);
 
   const summaryCards = useMemo(() => {
-    const subjectEntries = classSubjects
-      .filter(item => item.subject?._id)
+    const subjectEntries = markSubjects
       .map(item => {
-        const subjectId = String(item.subject._id);
+        const subjectId = item.subjectId;
         return markEntries[subjectId] || createEmptyEntry(subjectId);
       });
 
     if (subjectEntries.length === 0) return [];
 
-    const totalObtained = subjectEntries.reduce((sum, entry) => sum + (entry.isAbsent ? 0 : Number(entry.marksObtained || 0)), 0);
-    const totalMax = subjectEntries.reduce((sum, entry) => sum + Number(entry.maxMarks || 0), 0);
+    const totalObtained = subjectEntries.reduce((sum, entry) => sum + (entry.isAbsent ? 0 : Number(entry.theoryMarks || 0) + Number(entry.assessmentMarks || 0)), 0);
+    const totalMax = subjectEntries.reduce((sum, entry) => sum + Number(entry.theoryMaxMarks || 0) + Number(entry.assessmentMaxMarks || 0), 0);
     const percentage = totalMax > 0 ? Number(((totalObtained / totalMax) * 100).toFixed(2)) : 0;
-    const failedCount = subjectEntries.filter(entry => !entry.isAbsent && Number(entry.marksObtained || 0) < 35).length;
+    const failedCount = subjectEntries.filter(entry => !entry.isAbsent && (Number(entry.theoryMarks || 0) + Number(entry.assessmentMarks || 0)) < 35).length;
 
     return [
       { label: 'Total', value: `${totalObtained} / ${totalMax}` },
@@ -271,7 +406,7 @@ export default function ExamsPage() {
       { label: 'Result', value: failedCount === 0 ? 'PASS' : 'FAIL' },
       { label: 'Subjects', value: subjectEntries.length },
     ];
-  }, [classSubjects, markEntries]);
+  }, [markSubjects, markEntries]);
 
   const examCards = useMemo(() => exams.map(exam => (
     <div key={exam._id} className="campus-panel border-l-4 border-primary-600 p-4">
@@ -303,7 +438,7 @@ export default function ExamsPage() {
           )}
 
           <div className="campus-panel mt-6 p-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+	              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="form-group">
                 <label className="label">Exam</label>
                 <SearchableSelect options={examOptions} value={selectedExamId} onChange={setSelectedExamId} placeholder="Select exam..." />
@@ -312,13 +447,20 @@ export default function ExamsPage() {
                 <label className="label">Class</label>
                 <SearchableSelect options={classOptions} value={selectedClassId} onChange={setSelectedClassId} placeholder="Select class..." />
               </div>
-              <div className="form-group">
-                <label className="label">Student</label>
-                <SearchableSelect options={studentOptions} value={selectedStudentId} onChange={setSelectedStudentId} placeholder="Select student..." />
-              </div>
-            </div>
+	              <div className="form-group">
+	                <label className="label">Student</label>
+	                <SearchableSelect
+	                  options={studentOptions}
+	                  value={selectedStudentId}
+	                  onChange={setSelectedStudentId}
+	                  placeholder="Select student..."
+	                  optionClassName={option => option?.hasMarks ? 'text-emerald-700' : 'text-rose-700'}
+	                  selectedClassName={option => option?.hasMarks ? 'text-emerald-700' : 'text-rose-700'}
+	                />
+	              </div>
+	            </div>
 
-            {canShowMarksTable && (
+	            {canShowMarksTable && (
               <div className="mt-4 rounded border border-primary-100 bg-primary-50/70 px-4 py-3">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -352,43 +494,64 @@ export default function ExamsPage() {
                 ))}
               </div>
 
-              <div className="campus-panel overflow-hidden">
-                <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-text-primary">
-                      {selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : 'Selected Student'}
-                    </p>
-                    <p className="text-xs text-text-secondary">
-                      {hasSavedMarks && !isEditMode ? 'Saved marks are shown below. Click Edit Marks to update them.' : 'Enter all subject marks for the selected student.'}
-                    </p>
-                  </div>
-                  <button onClick={handleSaveMarks} disabled={savingMarks || classSubjects.length === 0 || (hasSavedMarks && !isEditMode)} className="btn-primary btn-sm">
-                    <FiSave /> {savingMarks ? 'Saving...' : 'Save Marks'}
-                  </button>
-                </div>
+	              <div className="campus-panel overflow-hidden">
+	                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+	                  <div>
+	                    <p className="text-sm font-semibold text-text-primary">
+	                      {selectedExam?.name || 'Selected Exam'} Marks Entry
+	                    </p>
+	                    <p className="text-xs text-text-secondary">
+	                      {selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : 'Selected Student'} • {selectedClass?.displayName || 'Selected Class'}
+	                    </p>
+	                    <p className="mt-1 text-xs text-text-secondary">
+	                      {hasSavedMarks && !isEditMode ? 'Saved marks are shown below. Click Edit Marks to update them.' : 'Enter all subject marks for the selected student.'}
+	                    </p>
+	                    <p className="mt-1 text-xs text-text-secondary">
+	                      Remarks are optional notes like absent reason, retest note, grace note, or any correction comment for that subject.
+	                    </p>
+	                  </div>
+	                  <div className="flex items-center gap-2">
+	                    {hasSavedMarks && (
+	                      <button onClick={() => setIsEditMode(current => !current)} className="btn-secondary btn-sm">
+	                        <FiEdit2 /> {isEditMode ? 'Stop Editing' : 'Edit Marks'}
+	                      </button>
+	                    )}
+	                    {savedMarks.length > 0 && (
+	                      <button onClick={handleDeleteMarks} className="btn-danger btn-sm">
+	                        <FiTrash2 /> Delete Marks
+	                      </button>
+	                    )}
+	                    <button onClick={handleSaveMarks} disabled={savingMarks || markSubjects.length === 0 || (hasSavedMarks && !isEditMode)} className="btn-primary btn-sm">
+	                      <FiSave /> {savingMarks ? 'Saving...' : 'Save Marks'}
+	                    </button>
+	                  </div>
+	                </div>
 
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
                         <th className="table-header">Subject</th>
-                        <th className="table-header">Marks</th>
-                        <th className="table-header">Max</th>
+                        <th className="table-header">Theory</th>
+                        <th className="table-header">Internal / Practical</th>
+                        <th className="table-header">Total</th>
                         <th className="table-header">Absent</th>
                         <th className="table-header">Result</th>
                         <th className="table-header">Remarks</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {classSubjects.length === 0 ? (
-                        <tr><td colSpan="6" className="py-10 text-center text-sm text-slate-400">No subjects found for this class.</td></tr>
-                      ) : classSubjects.map(item => {
-                        const subjectId = String(item.subject?._id || '');
+                      {markSubjects.length === 0 ? (
+                        <tr><td colSpan="7" className="py-10 text-center text-sm text-slate-400">No subjects found for this class.</td></tr>
+                      ) : markSubjects.map(item => {
+                        const subjectId = item.subjectId;
                         const entry = markEntries[subjectId] || createEmptyEntry(subjectId);
-                        const isPassed = entry.isAbsent ? false : Number(entry.marksObtained || 0) >= 35;
+                        const totalMarks = entry.isAbsent ? 0 : Number(entry.theoryMarks || 0) + Number(entry.assessmentMarks || 0);
+                        const totalMax = Number(entry.theoryMaxMarks || item.structure.theoryMaxMarks) + Number(entry.assessmentMaxMarks || item.structure.assessmentMaxMarks);
+                        const isPassed = entry.isAbsent ? false : totalMarks >= 35;
 
                         return (
-                          <tr key={item._id || subjectId}>
+                          <tr key={subjectId}>
                             <td className="table-cell">
                               <div className="min-w-0">
                                 <p className="font-semibold text-text-primary">{item.subject?.name || '-'}</p>
@@ -396,22 +559,35 @@ export default function ExamsPage() {
                               </div>
                             </td>
                             <td className="table-cell">
-                              <input
-                                type="number"
-                                disabled={inputsDisabled || entry.isAbsent}
-                                className="input min-w-[90px]"
-                                value={entry.marksObtained}
-                                onChange={event => handleMarkChange(subjectId, 'marksObtained', event.target.value)}
-                              />
+                              <div className="space-y-2">
+                                <input
+                                  type="number"
+                                  disabled={inputsDisabled || entry.isAbsent}
+                                  className="input min-w-[90px]"
+                                  min="0"
+                                  max={entry.theoryMaxMarks || item.structure.theoryMaxMarks}
+                                  value={entry.theoryMarks}
+                                  onChange={event => handleMarkChange(subjectId, 'theoryMarks', event.target.value)}
+                                />
+                                <p className="text-xs text-slate-400">Max {entry.theoryMaxMarks || item.structure.theoryMaxMarks}</p>
+                              </div>
                             </td>
                             <td className="table-cell">
-                              <input
-                                type="number"
-                                disabled={inputsDisabled}
-                                className="input min-w-[90px]"
-                                value={entry.maxMarks}
-                                onChange={event => handleMarkChange(subjectId, 'maxMarks', event.target.value)}
-                              />
+                              <div className="space-y-2">
+                                <input
+                                  type="number"
+                                  disabled={inputsDisabled || entry.isAbsent}
+                                  className="input min-w-[120px]"
+                                  min="0"
+                                  max={entry.assessmentMaxMarks || item.structure.assessmentMaxMarks}
+                                  value={entry.assessmentMarks}
+                                  onChange={event => handleMarkChange(subjectId, 'assessmentMarks', event.target.value)}
+                                />
+                                <p className="text-xs text-slate-400">{item.structure.assessmentLabel} Max {entry.assessmentMaxMarks || item.structure.assessmentMaxMarks}</p>
+                              </div>
+                            </td>
+                            <td className="table-cell font-semibold">
+                              {entry.isAbsent ? 'Absent' : `${totalMarks} / ${totalMax}`}
                             </td>
                             <td className="table-cell">
                               <input
@@ -451,8 +627,9 @@ export default function ExamsPage() {
                     <thead>
                       <tr>
                         <th className="table-header">Subject</th>
-                        <th className="table-header">Marks</th>
-                        <th className="table-header">Max</th>
+                        <th className="table-header">Theory</th>
+                        <th className="table-header">Internal / Practical</th>
+                        <th className="table-header">Total</th>
                         <th className="table-header">Grade</th>
                         <th className="table-header">Result</th>
                         <th className="table-header">Remarks</th>
@@ -462,8 +639,9 @@ export default function ExamsPage() {
                       {savedMarks.map(mark => (
                         <tr key={mark._id}>
                           <td className="table-cell font-semibold">{mark.subject?.name || '-'}</td>
-                          <td className="table-cell">{mark.isAbsent ? 'Absent' : mark.marksObtained}</td>
-                          <td className="table-cell">{mark.maxMarks}</td>
+                          <td className="table-cell">{mark.isAbsent ? 'Absent' : `${mark.theoryMarks ?? mark.marksObtained} / ${mark.theoryMaxMarks ?? mark.maxMarks}`}</td>
+                          <td className="table-cell">{mark.isAbsent ? '-' : `${mark.assessmentMarks ?? 0} / ${mark.assessmentMaxMarks ?? 0}`}</td>
+                          <td className="table-cell">{mark.isAbsent ? 'Absent' : `${mark.marksObtained} / ${mark.maxMarks}`}</td>
                           <td className="table-cell">{mark.grade || '-'}</td>
                           <td className="table-cell">
                             <StatusBadge status={mark.isAbsent ? 'absent' : mark.isPassed ? 'active' : 'rejected'} />

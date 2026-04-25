@@ -167,12 +167,15 @@ export const examRoutes = express.Router();
 examRoutes.use(protect);
 examRoutes.get('/',           allStaff, miscCtrl.getExams);
 examRoutes.post('/',          superAdminOnly, miscCtrl.createExam);
+examRoutes.put('/:id',        superAdminOnly, miscCtrl.updateExam);
+examRoutes.delete('/:id',     superAdminOnly, miscCtrl.deleteExam);
 examRoutes.get('/schedule',   allStaff, miscCtrl.getExamSchedule);
 examRoutes.post('/schedule',  superAdminOnly, miscCtrl.createExamSchedule);
 examRoutes.post('/announce',  superAdminOnly, miscCtrl.announceExamSchedule);
 examRoutes.get('/marks',      allStaff, miscCtrl.getMarks);
 examRoutes.get('/report-card', allStaff, miscCtrl.getReportCard);
 examRoutes.post('/marks',     teachingStaff, miscCtrl.saveMarks);
+examRoutes.delete('/marks',   teachingStaff, miscCtrl.deleteMarks);
 
 // ── Library ───────────────────────────────────────────────────────────────────
 export const libraryRoutes = express.Router();
@@ -202,6 +205,7 @@ export const dashboardRoutes = express.Router();
 dashboardRoutes.use(protect);
 dashboardRoutes.get('/',        allStaff, dashCtrl.getDashboard);
 dashboardRoutes.get('/teacher', protect,  dashCtrl.getTeacherDashboard);
+dashboardRoutes.get('/reports', reportStaff, dashCtrl.getSchoolReports);
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 export const settingsRoutes = express.Router();

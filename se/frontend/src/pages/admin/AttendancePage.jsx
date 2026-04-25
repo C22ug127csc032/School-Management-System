@@ -23,6 +23,8 @@ export function AttendancePage() {
   const [tab,      setTab]      = useState('mark'); // 'mark' or 'history'
   const [history,  setHistory]  = useState([]);
   const [histLoading, setHistLoading] = useState(false);
+  const [isHoliday, setIsHoliday] = useState(false);
+  const [holidayReason, setHolidayReason] = useState('');
 
   useEffect(() => {
     api.get('/classes', {
@@ -55,6 +57,8 @@ export function AttendancePage() {
         init[s._id] = e?.status || 'present';
       });
       setEntries(init);
+      setIsHoliday(Boolean(existing?.isHoliday));
+      setHolidayReason(existing?.holidayReason || '');
       setHasExistingRecord(Boolean(existing));
       setEditMode(!existing);
     } catch { toast.error('Failed to load students.'); }
@@ -130,9 +134,20 @@ export function AttendancePage() {
     if (!selClass) return;
     setSaving(true);
     try {
+      if (isHoliday && !holidayReason.trim()) {
+        toast.error('Enter the holiday name.');
+        return;
+      }
       const entryArr = students.map(s => ({ student: s._id, status: entries[s._id] || 'present' }));
-      await api.post('/attendance', { classId: selClass, date, entries: entryArr, academicYear });
-      toast.success('Attendance saved!');
+      const response = await api.post('/attendance', {
+        classId: selClass,
+        date,
+        entries: isHoliday ? [] : entryArr,
+        academicYear,
+        isHoliday,
+        holidayReason: isHoliday ? holidayReason.trim() : '',
+      });
+      toast.success(response.data?.message || (isHoliday ? 'Holiday saved!' : 'Attendance saved!'));
       setHasExistingRecord(true);
       setEditMode(false);
     } catch (err) { toast.error(err.response?.data?.message || 'Failed.'); }
@@ -185,18 +200,43 @@ export function AttendancePage() {
                 <div><label className="label">Date</label>
                   <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} /></div>
                 <div className="flex items-end gap-2">
-                  <button onClick={() => setAll('present')} disabled={!canEditAttendance} className="btn-success btn-sm flex-1">All Present</button>
-                  <button onClick={() => setAll('absent')} disabled={!canEditAttendance} className="btn-danger btn-sm flex-1">All Absent</button>
+                  <button onClick={() => setAll('present')} disabled={!canEditAttendance || isHoliday} className="btn-success btn-sm flex-1">All Present</button>
+                  <button onClick={() => setAll('absent')} disabled={!canEditAttendance || isHoliday} className="btn-danger btn-sm flex-1">All Absent</button>
                 </div>
               </>
             )}
           </div>
+          {tab === 'mark' && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[220px_minmax(0,1fr)]">
+              <label className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={isHoliday}
+                  disabled={!canEditAttendance}
+                  onChange={event => setIsHoliday(event.target.checked)}
+                  className="accent-primary-700"
+                />
+                Mark this date as holiday
+              </label>
+              <div>
+                <label className="label">Holiday Name</label>
+                <input
+                  className="input"
+                  value={holidayReason}
+                  disabled={!canEditAttendance || !isHoliday}
+                  onChange={event => setHolidayReason(event.target.value)}
+                  placeholder="e.g. Republic Day / Local Holiday"
+                />
+              </div>
+            </div>
+          )}
         </div>
         {tab === 'mark' && students.length > 0 && (
           <div className="mt-3 flex gap-4 text-sm">
             <span className="text-emerald-600 font-semibold">Present: {present}</span>
             <span className="text-red-600 font-semibold">Absent: {absent}</span>
             <span className="text-text-secondary">Total: {students.length}</span>
+            {isHoliday && <span className="font-semibold text-rose-600">Holiday: {holidayReason || 'Named holiday'}</span>}
             {hasExistingRecord && !editMode && <span className="font-semibold text-primary-700">Saved record loaded</span>}
             {hasExistingRecord && editMode && <span className="font-semibold text-amber-600">Editing saved attendance</span>}
           </div>
@@ -208,6 +248,11 @@ export function AttendancePage() {
           <div className="campus-panel overflow-hidden">
             {students.length === 0 ? (
               <p className="p-8 text-center text-sm text-slate-400">{selClass ? 'No active students in this class.' : 'Select a class to mark attendance.'}</p>
+            ) : isHoliday ? (
+              <div className="p-8 text-center">
+                <p className="text-base font-semibold text-rose-700">{holidayReason || 'Holiday'}</p>
+                <p className="mt-2 text-sm text-slate-500">Attendance entries are skipped because this date is marked as a holiday.</p>
+              </div>
             ) : (
               <table className="table">
                 <thead><tr>

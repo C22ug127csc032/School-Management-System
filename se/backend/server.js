@@ -8,6 +8,8 @@ import dotenv   from 'dotenv';
 import path     from 'path';
 import { fileURLToPath } from 'url';
 import Period from './models/Period.model.js';
+import { ExamSchedule } from './models/Academic.model.js';
+import { StudentFees } from './models/Fees.model.js';
 
 dotenv.config();
 
@@ -68,7 +70,11 @@ app.use((err, _req, res, _next) => {
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('MongoDB connected');
-    return Period.syncIndexes();
+    return Promise.all([
+      Period.syncIndexes(),
+      ExamSchedule.syncIndexes(),
+      StudentFees.syncIndexes(),
+    ]);
   })
   .then(() => {
     app.listen(process.env.PORT || 5000, () =>

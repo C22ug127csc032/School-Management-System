@@ -1,28 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { FiPlus, FiTrash2, FiDollarSign } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiDollarSign, FiEdit2, FiEye } from 'react-icons/fi';
 import api from '../../api/axios.js';
 import { PageHeader, DataTable, Modal, SearchableSelect, StatusBadge } from '../../components/common/index.jsx';
 import useAcademicYear from '../../hooks/useAcademicYear.js';
 
+const FEE_APPLICABILITY_OPTIONS = [
+  { value: 'all', label: 'All Students' },
+  { value: 'hosteler', label: 'Hosteller Only' },
+  { value: 'transport', label: 'Transport Students Only' },
+  { value: 'no_transport', label: 'No Transport Students Only' },
+];
+
+const createFeeHead = (applicableTo = 'all', overrides = {}) => ({
+  headName: '',
+  amount: 0,
+  applicableTo,
+  ...overrides,
+});
+
+const createInitialForm = academicYear => ({
+  name: '',
+  grade: '',
+  academicYear,
+  term: '',
+  feeHeads: [createFeeHead('all', { headName: 'Tuition Fee' })],
+  hasInstallments: false,
+  fineEnabled: false,
+  fineType: 'flat',
+  fineAmount: 0,
+  fineGraceDays: 0,
+});
+
 export function FeeStructuresPage() {
   const academicYear = useAcademicYear();
   const [structures, setStructures] = useState([]);
+  const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    grade: '',
-    academicYear,
-    term: 'Annual',
-    feeHeads: [{ headName: 'Tuition Fee', amount: 0, applicableTo: 'all' }],
-    hasInstallments: false,
-    fineEnabled: false,
-    fineType: 'flat',
-    fineAmount: 0,
-    fineGraceDays: 0,
-  });
+  const [editingId, setEditingId] = useState('');
+  const [viewItem, setViewItem] = useState(null);
+  const [form, setForm] = useState(() => createInitialForm(academicYear));
 
   useEffect(() => {
     setForm(current => (current.academicYear === academicYear ? current : { ...current, academicYear }));
@@ -30,8 +49,14 @@ export function FeeStructuresPage() {
 
   const load = () => {
     setLoading(true);
-    api.get('/fees/structures', { params: { academicYear } })
-      .then(r => setStructures(r.data.data))
+    Promise.all([
+      api.get('/fees/structures', { params: { academicYear } }),
+      api.get('/classes', { params: { academicYear } }),
+    ])
+      .then(([structuresRes, classesRes]) => {
+        setStructures(structuresRes.data.data || []);
+        setClasses(classesRes.data.data || []);
+      })
       .catch(() => toast.error('Failed.'))
       .finally(() => setLoading(false));
   };
@@ -40,7 +65,7 @@ export function FeeStructuresPage() {
     load();
   }, [academicYear]);
 
-  const addHead = () => setForm(f => ({ ...f, feeHeads: [...f.feeHeads, { headName: '', amount: 0, applicableTo: 'all' }] }));
+  const addHead = () => setForm(f => ({ ...f, feeHeads: [...f.feeHeads, createFeeHead('all')] }));
   const removeHead = index => setForm(f => ({ ...f, feeHeads: f.feeHeads.filter((_, idx) => idx !== index) }));
   const updateHead = (index, key, value) => setForm(f => {
     const heads = [...f.feeHeads];
@@ -49,13 +74,21 @@ export function FeeStructuresPage() {
   });
 
   const total = form.feeHeads.reduce((sum, head) => sum + Number(head.amount || 0), 0);
-
   const handleSave = async () => {
     if (!form.name) return toast.error('Structure name required.');
+    if (form.feeHeads.length === 0) return toast.error('Add at least one fee head.');
+    if (form.feeHeads.some(head => !head.headName?.trim())) return toast.error('Every fee head needs a name.');
     setSaving(true);
     try {
-      await api.post('/fees/structures', form);
-      toast.success('Fee structure created.');
+      if (editingId) {
+        await api.put(`/fees/structures/${editingId}`, form);
+        toast.success('Fee structure updated.');
+      } else {
+        await api.post('/fees/structures', form);
+        toast.success('Fee structure created.');
+      }
+      setForm(createInitialForm(academicYear));
+      setEditingId('');
       setModal(false);
       load();
     } catch (err) {
@@ -76,21 +109,68 @@ export function FeeStructuresPage() {
     }
   };
 
+  const openCreateModal = () => {
+    setEditingId('');
+    setForm(createInitialForm(academicYear));
+    setModal(true);
+  };
+
+  const openEditModal = structure => {
+    setEditingId(structure._id);
+    setForm({
+      name: structure.name || '',
+      grade: structure.grade || '',
+      academicYear: structure.academicYear || academicYear,
+      term: structure.term || '',
+      feeHeads: (structure.feeHeads?.length ? structure.feeHeads : [createFeeHead('all', { headName: 'Tuition Fee' })]).map(head => ({
+        headName: head.headName || '',
+        amount: head.amount || 0,
+        applicableTo: head.applicableTo || 'all',
+      })),
+      hasInstallments: Boolean(structure.hasInstallments),
+      fineEnabled: Boolean(structure.fineEnabled),
+      fineType: structure.fineType || 'flat',
+      fineAmount: structure.fineAmount || 0,
+      fineGraceDays: structure.fineGraceDays || 0,
+    });
+    setModal(true);
+  };
+
   const columns = [
     { key: 'name', label: 'Structure Name', render: item => <span className="font-semibold">{item.name}</span> },
     { key: 'grade', label: 'Grade', render: item => item.grade || 'All' },
-    { key: 'term', label: 'Term', render: item => item.term || '-' },
+    { key: 'heads', label: 'Fee Heads', render: item => `${item.feeHeads?.length || 0} heads` },
     { key: 'total', label: 'Total Amount', render: item => <span className="font-bold text-primary-700">Rs.{(item.totalAmount || 0).toLocaleString('en-IN')}</span> },
     { key: 'ay', label: 'Acad. Year', render: item => item.academicYear },
-    { key: 'actions', label: '', render: item => <button onClick={() => handleDelete(item._id)} className="btn-icon btn-sm text-red-600"><FiTrash2 /></button> },
+    {
+      key: 'actions',
+      label: '',
+      render: item => (
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={() => setViewItem(item)} className="btn-icon btn-sm text-slate-600"><FiEye /></button>
+          <button onClick={() => openEditModal(item)} className="btn-icon btn-sm text-primary-700"><FiEdit2 /></button>
+          <button onClick={() => handleDelete(item._id)} className="btn-icon btn-sm text-red-600"><FiTrash2 /></button>
+        </div>
+      ),
+    },
   ];
+
+  const gradeOptions = Array.from(
+    new Set(
+      classes
+        .map(item => String(item.grade || '').trim())
+        .filter(Boolean)
+    )
+  )
+    .sort((left, right) => Number(left) - Number(right))
+    .map(grade => ({ value: grade, label: `Grade ${grade}` }));
 
   return (
     <div className="float-in">
       <PageHeader
         title="Fee Structures"
         subtitle="Manage fee structures for classes"
-        actions={<button onClick={() => setModal(true)} className="btn-primary"><FiPlus />New Structure</button>}
+        actions={<button onClick={openCreateModal} className="btn-primary"><FiPlus />New Structure</button>}
       />
       <div className="campus-panel overflow-hidden">
         <DataTable columns={columns} data={structures} loading={loading} />
@@ -98,10 +178,10 @@ export function FeeStructuresPage() {
 
       <Modal
         open={modal}
-        onClose={() => setModal(false)}
-        title="Create Fee Structure"
+        onClose={() => { setModal(false); setEditingId(''); setForm(createInitialForm(academicYear)); }}
+        title={editingId ? 'Edit Fee Structure' : 'Create Fee Structure'}
         size="lg"
-        footer={<><button onClick={() => setModal(false)} className="btn-secondary btn-sm">Cancel</button><button onClick={handleSave} disabled={saving} className="btn-primary btn-sm">{saving ? 'Saving...' : 'Create'}</button></>}
+        footer={<><button onClick={() => { setModal(false); setEditingId(''); setForm(createInitialForm(academicYear)); }} className="btn-secondary btn-sm">Cancel</button><button onClick={handleSave} disabled={saving} className="btn-primary btn-sm">{saving ? 'Saving...' : (editingId ? 'Update' : 'Create')}</button></>}
       >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -110,12 +190,8 @@ export function FeeStructuresPage() {
               <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="label">For Grade (optional)</label>
-              <input className="input" placeholder="e.g. 10 or leave blank" value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))} />
-            </div>
-            <div className="form-group">
-              <label className="label">Term</label>
-              <input className="input" value={form.term} onChange={e => setForm(f => ({ ...f, term: e.target.value }))} />
+              <label className="label">Grade (optional)</label>
+              <SearchableSelect options={gradeOptions} value={form.grade} onChange={value => setForm(f => ({ ...f, grade: value }))} placeholder="Select grade..." />
             </div>
           </div>
 
@@ -124,21 +200,29 @@ export function FeeStructuresPage() {
               <label className="label mb-0">Fee Heads</label>
               <button type="button" onClick={addHead} className="btn-secondary btn-sm"><FiPlus />Add Head</button>
             </div>
-            <div className="space-y-2">
+            <div className="overflow-hidden rounded-2xl border border-border">
+              <div className="grid grid-cols-12 gap-2 border-b border-border bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                <div className="col-span-5">Fee Head</div>
+                <div className="col-span-2">Amount</div>
+                <div className="col-span-4">Applies To</div>
+                <div className="col-span-1 text-right"> </div>
+              </div>
+              <div className="space-y-2 p-2">
               {form.feeHeads.map((head, index) => (
-                <div key={index} className="grid grid-cols-12 items-center gap-2 border border-border p-2">
+                <div key={index} className="grid grid-cols-12 items-center gap-2 rounded-xl border border-border p-2">
                   <input className="input col-span-5" placeholder="Fee head name" value={head.headName} onChange={e => updateHead(index, 'headName', e.target.value)} />
-                  <input type="number" className="input col-span-3" placeholder="Amount Rs." value={head.amount} onChange={e => updateHead(index, 'amount', e.target.value)} />
-                  <select className="input col-span-3" value={head.applicableTo} onChange={e => updateHead(index, 'applicableTo', e.target.value)}>
-                    <option value="all">All</option>
-                    <option value="hosteler">Hosteler</option>
-                    <option value="day_scholar">Day Scholar</option>
+                  <input type="number" className="input col-span-2" placeholder="Amount Rs." value={head.amount} onChange={e => updateHead(index, 'amount', e.target.value)} />
+                  <select className="input col-span-4" value={head.applicableTo} onChange={e => updateHead(index, 'applicableTo', e.target.value)}>
+                    {FEE_APPLICABILITY_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                   <button type="button" onClick={() => removeHead(index)} className="btn-icon btn-sm col-span-1 text-red-600"><FiTrash2 /></button>
                 </div>
               ))}
+              </div>
             </div>
-            <p className="mt-2 text-right text-sm font-bold text-primary-700">Total: Rs.{total.toLocaleString('en-IN')}</p>
+            <p className="mt-3 text-right text-sm font-bold text-primary-700">Grand Total: Rs.{total.toLocaleString('en-IN')}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -168,6 +252,44 @@ export function FeeStructuresPage() {
             </div>
           )}
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(viewItem)}
+        onClose={() => setViewItem(null)}
+        title="View Fee Structure"
+        size="lg"
+        footer={<button onClick={() => setViewItem(null)} className="btn-secondary btn-sm">Close</button>}
+      >
+        {viewItem && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div><p className="label">Structure Name</p><p className="text-sm font-semibold text-slate-900">{viewItem.name}</p></div>
+              <div><p className="label">Grade</p><p className="text-sm font-semibold text-slate-900">{viewItem.grade || 'All'}</p></div>
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-border">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th className="table-header">Fee Head</th>
+                    <th className="table-header">Amount</th>
+                    <th className="table-header">Applies To</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(viewItem.feeHeads || []).map((head, index) => (
+                    <tr key={`${head.headName}-${index}`}>
+                      <td className="table-cell">{head.headName}</td>
+                      <td className="table-cell">Rs.{Number(head.amount || 0).toLocaleString('en-IN')}</td>
+                      <td className="table-cell">{FEE_APPLICABILITY_OPTIONS.find(option => option.value === head.applicableTo)?.label || 'All Students'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-right text-sm font-bold text-primary-700">Total: Rs.{Number(viewItem.totalAmount || 0).toLocaleString('en-IN')}</p>
+          </div>
+        )}
       </Modal>
     </div>
   );
@@ -246,9 +368,19 @@ export function AssignFeesPage() {
   const selectedClass = classes.find(item => item._id === selectedClassId);
   const structureOpts = structures.map(item => ({ value: item._id, label: `${item.name} - Rs.${(item.totalAmount || 0).toLocaleString('en-IN')}` }));
   const classOpts = classes.map(item => ({ value: item._id, label: item.displayName || `Grade ${item.grade}-${item.section}` }));
-  const assignedStudentIds = new Set(assignedFees.map(item => String(item.student?._id || item.student)));
-  const allStudentsAssigned = students.length > 0 && students.every(student => assignedStudentIds.has(String(student._id)));
-  const assignedByStudentId = new Map(assignedFees.map(item => [String(item.student?._id || item.student), item]));
+  const selectedStructureAssignedStudentIds = new Set(
+    assignedFees
+      .filter(item => String(item.structure?._id || item.structure) === String(form.structureId || ''))
+      .map(item => String(item.student?._id || item.student))
+  );
+  const allStudentsAssigned = Boolean(form.structureId) && students.length > 0 && students.every(student => selectedStructureAssignedStudentIds.has(String(student._id)));
+  const assignedByStudentId = assignedFees.reduce((map, item) => {
+    const key = String(item.student?._id || item.student);
+    const current = map.get(key) || [];
+    current.push(item);
+    map.set(key, current);
+    return map;
+  }, new Map());
   const assignedStructureSummaries = Array.from(
     assignedFees.reduce((map, item) => {
       const key = String(item.structure?._id || item.structure || 'assigned');
@@ -286,7 +418,7 @@ export function AssignFeesPage() {
               {students.length} active student(s) found in {selectedClass.displayName || `Grade ${selectedClass.grade}-${selectedClass.section}`}.
             </p>
             <p>
-              {assignedStudentIds.size} student(s) already have fees assigned for {academicYear}.
+              {assignedFees.length} fee assignment(s) already exist for {academicYear}.
             </p>
           </div>
         )}
@@ -326,14 +458,18 @@ export function AssignFeesPage() {
                   <td className="table-cell font-mono text-xs">{student.admissionNo}</td>
                   <td className="table-cell">{student.classRef?.displayName || `Grade ${student.grade}-${student.section}`}</td>
                   <td className="table-cell"><StatusBadge status={student.status} /></td>
-                  <td className="table-cell">
-                    {assignedByStudentId.has(String(student._id)) ? (
-                      <div>
-                        <p className="font-semibold text-slate-900">{assignedByStudentId.get(String(student._id)).structure?.name || 'Assigned'}</p>
-                        <p className="text-xs text-slate-500">{assignedByStudentId.get(String(student._id)).term || 'General'}</p>
-                      </div>
-                    ) : (
-                      <StatusBadge status="pending" />
+	                  <td className="table-cell">
+	                    {assignedByStudentId.has(String(student._id)) ? (
+	                      <div>
+	                        {assignedByStudentId.get(String(student._id)).map(assignedItem => (
+	                          <div key={assignedItem._id} className="mb-1 last:mb-0">
+	                            <p className="font-semibold text-slate-900">{assignedItem.structure?.name || 'Assigned'}</p>
+	                            <p className="text-xs text-slate-500">{assignedItem.term || assignedItem.structure?.name || 'General'}</p>
+	                          </div>
+	                        ))}
+	                      </div>
+	                    ) : (
+	                      <StatusBadge status="pending" />
                     )}
                   </td>
                 </tr>
@@ -365,12 +501,12 @@ export function AssignFeesPage() {
           </div>
           {selectedStructureSummary && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-              {selectedStructureSummary.name} is already assigned to {selectedStructureSummary.studentCount} student(s) in this class.
+              {selectedStructureSummary.name} already exists for {selectedStructureSummary.studentCount} student(s) in this class.
             </div>
           )}
-          {!selectedStructureSummary && allStudentsAssigned && assignedStructureSummaries.length > 0 && (
+          {!form.structureId && assignedStructureSummaries.length > 0 && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-              This class already has assigned fees: {assignedStructureSummaries.map(item => item.name).join(', ')}.
+              This class already has these fee structures: {assignedStructureSummaries.map(item => item.name).join(', ')}.
             </div>
           )}
           <div className="form-group">
@@ -395,23 +531,57 @@ export function AssignFeesPage() {
 
 export function FeesListPage() {
   const academicYear = useAcademicYear();
+  const [classes, setClasses] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [selectedStudentId, setSelectedStudentId] = useState('');
   const [fees, setFees] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [studentLoading, setStudentLoading] = useState(false);
   const [payModal, setPayModal] = useState(null);
   const [payForm, setPayForm] = useState({ amount: '', paymentMode: 'cash', transactionRef: '', remarks: '' });
   const [saving, setSaving] = useState(false);
 
   const load = () => {
     setLoading(true);
-    api.get('/fees/student', { params: { academicYear } })
-      .then(r => setFees(r.data.data))
+    Promise.all([
+      api.get('/classes', { params: { academicYear } }),
+      api.get('/fees/student', { params: { academicYear, studentId: selectedStudentId || undefined } }),
+      api.get('/fees/payments', { params: { academicYear, studentId: selectedStudentId || undefined } }),
+    ])
+      .then(([classesRes, feesRes, paymentsRes]) => {
+        setClasses(classesRes.data.data || []);
+        setFees(feesRes.data.data || []);
+        setPayments(paymentsRes.data.data || []);
+      })
       .catch(() => toast.error('Failed.'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     load();
-  }, [academicYear]);
+  }, [academicYear, selectedStudentId]);
+
+  useEffect(() => {
+    if (!selectedClassId) {
+      setStudents([]);
+      setSelectedStudentId('');
+      return;
+    }
+
+    setStudentLoading(true);
+    api.get('/students', { params: { classId: selectedClassId, status: 'active', limit: 200, academicYear } })
+      .then(response => {
+        setStudents(response.data.data || []);
+        setSelectedStudentId('');
+      })
+      .catch(() => {
+        toast.error('Failed to load students.');
+        setStudents([]);
+      })
+      .finally(() => setStudentLoading(false));
+  }, [selectedClassId, academicYear]);
 
   const handlePayment = async () => {
     if (!payForm.amount || Number(payForm.amount) <= 0) return toast.error('Enter a valid amount.');
@@ -421,6 +591,7 @@ export function FeesListPage() {
         studentId: payModal.student._id,
         studentFeesId: payModal._id,
         academicYear: payModal.academicYear,
+        term: payModal.term,
         ...payForm,
         amount: Number(payForm.amount),
       });
@@ -436,15 +607,16 @@ export function FeesListPage() {
 
   const columns = [
     {
-      key: 'student',
-      label: 'Student',
-      render: item => item.student ? (
+      key: 'structure',
+      label: 'Fee Structure',
+      render: item => item.structure ? (
         <div>
-          <p className="font-semibold">{item.student.firstName} {item.student.lastName}</p>
-          <p className="text-xs font-mono text-text-secondary">{item.student.admissionNo}</p>
+          <p className="font-semibold">{item.structure.name}</p>
+          <p className="text-xs text-text-secondary">{item.term || item.structure.name}</p>
         </div>
       ) : '-',
     },
+    { key: 'dueDate', label: 'Due Date', render: item => item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-IN') : '-' },
     { key: 'total', label: 'Total', render: item => <span className="font-bold">Rs.{(item.totalAmount || 0).toLocaleString('en-IN')}</span> },
     { key: 'paid', label: 'Paid', render: item => <span className="font-bold text-emerald-600">Rs.{(item.paidAmount || 0).toLocaleString('en-IN')}</span> },
     { key: 'due', label: 'Due', render: item => <span className="font-bold text-red-600">Rs.{(item.dueAmount || 0).toLocaleString('en-IN')}</span> },
@@ -466,12 +638,75 @@ export function FeesListPage() {
     },
   ];
 
+  const paymentColumns = [
+    { key: 'receipt', label: 'Receipt', render: item => <span className="font-mono text-xs">{item.receiptNo || '-'}</span> },
+    { key: 'date', label: 'Date', render: item => item.paymentDate ? new Date(item.paymentDate).toLocaleDateString('en-IN') : '-' },
+    { key: 'amount', label: 'Amount', render: item => <span className="font-bold text-emerald-600">Rs.{Number(item.amount || 0).toLocaleString('en-IN')}</span> },
+    { key: 'mode', label: 'Mode', render: item => item.paymentMode?.toUpperCase() || '-' },
+    { key: 'term', label: 'Fee', render: item => item.term || '-' },
+    { key: 'remarks', label: 'Remarks', render: item => item.remarks || '-' },
+  ];
+
+  const classOpts = classes.map(item => ({ value: item._id, label: item.displayName || `Grade ${item.grade}-${item.section}` }));
+  const studentOpts = students.map(item => ({
+    value: item._id,
+    label: `${item.firstName} ${item.lastName}${item.admissionNo ? ` (${item.admissionNo})` : ''}`,
+  }));
+  const selectedClass = classes.find(item => String(item._id) === String(selectedClassId));
+  const selectedStudent = students.find(item => String(item._id) === String(selectedStudentId));
+
   return (
     <div className="float-in">
-      <PageHeader title="Fees List" subtitle="All student fee assignments" />
-      <div className="campus-panel overflow-hidden">
-        <DataTable columns={columns} data={fees} loading={loading} />
+      <PageHeader title="Fees List" subtitle="Check assigned fees and payment movement student-wise" />
+
+      <div className="campus-panel mb-4 p-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="form-group">
+            <label className="label">Class / Grade</label>
+            <SearchableSelect options={classOpts} value={selectedClassId} onChange={setSelectedClassId} placeholder="Select class..." />
+          </div>
+          <div className="form-group">
+            <label className="label">Student</label>
+            <SearchableSelect options={studentOpts} value={selectedStudentId} onChange={setSelectedStudentId} placeholder={selectedClassId ? 'Select student...' : 'Select class first...'} disabled={!selectedClassId || studentLoading} />
+          </div>
+        </div>
+
+        {selectedClass && (
+          <div className="mt-3 text-sm text-text-secondary">
+            <p>{students.length} active student(s) found in {selectedClass.displayName || `Grade ${selectedClass.grade}-${selectedClass.section}`}.</p>
+          </div>
+        )}
       </div>
+
+      {selectedStudentId ? (
+        <>
+          <div className="campus-panel mb-4 p-4">
+            <p className="text-base font-bold text-slate-900">{selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : 'Selected Student'}</p>
+            <p className="mt-1 text-sm text-text-secondary">Assigned fee structures and current due details.</p>
+          </div>
+
+          <div className="campus-panel overflow-hidden">
+            <div className="border-b border-border px-4 py-3">
+              <p className="text-sm font-semibold text-text-primary">Assigned Fees</p>
+              <p className="text-xs text-text-secondary">This shows total, paid amount, and remaining due for the selected student.</p>
+            </div>
+            <DataTable columns={columns} data={fees} loading={loading} />
+          </div>
+
+          <div className="campus-panel mt-4 overflow-hidden">
+            <div className="border-b border-border px-4 py-3">
+              <p className="text-sm font-semibold text-text-primary">Fees Movement</p>
+              <p className="text-xs text-text-secondary">Every payment made by the selected student is shown here, so old partial payments and new payments are both visible.</p>
+            </div>
+            <DataTable columns={paymentColumns} data={payments} loading={loading} />
+          </div>
+        </>
+      ) : (
+        <div className="campus-panel p-6 text-sm text-text-secondary">
+          Select a class and student to view assigned fees and payment movement.
+        </div>
+      )}
+
       <Modal
         open={!!payModal}
         onClose={() => setPayModal(null)}
@@ -481,6 +716,7 @@ export function FeesListPage() {
         <div className="space-y-4">
           <div className="border border-border bg-slate-50 p-3 text-sm">
             <p><strong>Student:</strong> {payModal?.student?.firstName} {payModal?.student?.lastName}</p>
+            <p><strong>Fee Structure:</strong> {payModal?.structure?.name || '-'}</p>
             <p><strong>Pending:</strong> Rs.{(payModal?.dueAmount || 0).toLocaleString('en-IN')}</p>
           </div>
           <div className="form-group">

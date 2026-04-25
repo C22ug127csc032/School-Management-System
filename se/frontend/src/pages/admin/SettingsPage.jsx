@@ -4,8 +4,10 @@ import { FiSave } from 'react-icons/fi';
 import api from '../../api/axios.js';
 import { Field, PageHeader, PageLoader } from '../../components/common/index.jsx';
 import { setStoredAcademicYear } from '../../hooks/useAcademicYear.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 export default function SettingsPage() {
+  const { user } = useAuth();
   const [settings, setSettings] = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [saving,   setSaving]   = useState(false);
@@ -20,6 +22,18 @@ export default function SettingsPage() {
   }, []);
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+  const isSuperAdmin = user?.role === 'super_admin';
+  const setupChecks = [
+    form.schoolName,
+    form.schoolCode,
+    form.boardName,
+    form.schoolPhone,
+    form.schoolEmail,
+    form.currentAcademicYear,
+    Array.isArray(form.workingDays) && form.workingDays.length > 0,
+    form.schoolStartTime && form.schoolEndTime,
+  ];
+  const setupScore = Math.round((setupChecks.filter(Boolean).length / setupChecks.length) * 100);
 
   const handleSave = async () => {
     setSaving(true);
@@ -38,12 +52,32 @@ export default function SettingsPage() {
 
   return (
     <div className="float-in">
-      <PageHeader title="Settings" subtitle="School configuration and preferences"
+      <PageHeader title={isSuperAdmin ? 'School Setup' : 'Settings'} subtitle={isSuperAdmin ? 'Platform-level setup, identity, and timetable governance for the school workspace' : 'School configuration and preferences'}
         actions={<button onClick={handleSave} disabled={saving} className="btn-primary"><FiSave/>{saving?'Saving...':'Save Settings'}</button>} />
 
       <div className="campus-panel p-5 space-y-6">
+        {isSuperAdmin ? (
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-[22px] border border-slate-200 bg-white/85 p-4 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Setup Completion</p>
+              <p className="mt-2 text-3xl font-black tracking-tight text-slate-900">{setupScore}%</p>
+              <p className="mt-1 text-sm text-slate-500">Core school setup fields currently completed.</p>
+            </div>
+            <div className="rounded-[22px] border border-slate-200 bg-white/85 p-4 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Academic Year</p>
+              <p className="mt-2 text-2xl font-black tracking-tight text-slate-900">{form.currentAcademicYear || 'Not set'}</p>
+              <p className="mt-1 text-sm text-slate-500">Used across admissions, timetable, and reporting.</p>
+            </div>
+            <div className="rounded-[22px] border border-slate-200 bg-white/85 p-4 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Board & Identity</p>
+              <p className="mt-2 text-2xl font-black tracking-tight text-slate-900">{form.boardName || 'Not set'}</p>
+              <p className="mt-1 text-sm text-slate-500">{form.schoolCode || 'School code missing'}</p>
+            </div>
+          </div>
+        ) : null}
+
         <div>
-          <p className="section-title">School Information</p>
+          <p className="section-title">{isSuperAdmin ? 'School Identity' : 'School Information'}</p>
           <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label="School Name">
               <input className="input" type="text" placeholder="Sunrise Public School" value={form.schoolName || ''}
@@ -73,6 +107,10 @@ export default function SettingsPage() {
               <input className="input" type="text" placeholder="2024-25" value={form.currentAcademicYear || ''}
                 onChange={e => set('currentAcademicYear', e.target.value)} />
             </Field>
+            <Field label="Govt Holiday Calendar URL">
+              <input className="input" type="url" placeholder="Google / ICS holiday calendar URL" value={form.governmentHolidayCalendarUrl || ''}
+                onChange={e => set('governmentHolidayCalendarUrl', e.target.value)} />
+            </Field>
           </div>
           <Field label="School Address">
             <textarea className="input" rows="2" value={form.schoolAddress || ''} onChange={e => set('schoolAddress', e.target.value)} />
@@ -80,7 +118,7 @@ export default function SettingsPage() {
         </div>
 
         <div>
-          <p className="section-title">Timetable Settings</p>
+          <p className="section-title">{isSuperAdmin ? 'Academic Timing Rules' : 'Timetable Settings'}</p>
           <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="School Start Time">
               <input className="input" type="time" value={form.schoolStartTime || ''}

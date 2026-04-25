@@ -122,9 +122,36 @@ const examScheduleSchema = new mongoose.Schema({
   note:      { type: String, trim: true, default: '' },
 }, { timestamps: true });
 
-examScheduleSchema.index({ exam: 1, class: 1, day: 1, period: 1 }, { unique: true, sparse: true });
-examScheduleSchema.index({ exam: 1, class: 1, date: 1, period: 1 }, { unique: true, sparse: true });
-examScheduleSchema.index({ exam: 1, class: 1, date: 1, slotName: 1 }, { unique: true, sparse: true });
+examScheduleSchema.index(
+  { exam: 1, class: 1, day: 1, period: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      day: { $type: 'string' },
+      period: { $type: 'objectId' },
+    },
+  }
+);
+examScheduleSchema.index(
+  { exam: 1, class: 1, date: 1, period: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      date: { $type: 'date' },
+      period: { $type: 'objectId' },
+    },
+  }
+);
+examScheduleSchema.index(
+  { exam: 1, class: 1, date: 1, slotName: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      date: { $type: 'date' },
+      slotName: { $type: 'string' },
+    },
+  }
+);
 
 export const ExamSchedule = mongoose.model('ExamSchedule', examScheduleSchema);
 
@@ -135,6 +162,10 @@ const marksSchema = new mongoose.Schema({
   student:      { type: mongoose.Schema.Types.ObjectId, ref: 'Student', required: true },
   subject:      { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
   class:        { type: mongoose.Schema.Types.ObjectId, ref: 'Class', required: true },
+  theoryMarks:  { type: Number, default: 0 },
+  theoryMaxMarks: { type: Number, default: 100 },
+  assessmentMarks: { type: Number, default: 0 },
+  assessmentMaxMarks: { type: Number, default: 0 },
   marksObtained:{ type: Number, required: true },
   maxMarks:     { type: Number, default: 100 },
   grade:        { type: String },

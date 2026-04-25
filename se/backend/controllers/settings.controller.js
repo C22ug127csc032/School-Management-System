@@ -15,7 +15,7 @@ export const updateAppSettings = async (req, res) => {
   try {
     const allowed = [
       'schoolName','schoolCode','schoolAddress','schoolPhone','schoolEmail',
-      'schoolLogo','affiliationNo','boardName','currentAcademicYear',
+      'schoolLogo','affiliationNo','boardName','currentAcademicYear','governmentHolidayCalendarUrl',
       'schoolStartTime','schoolEndTime','periodsPerDay','periodDurationMins',
       'workingDays','shortBreakAfterPeriod','lunchBreakAfterPeriod',
       'shortBreakDurationMins','lunchBreakDurationMins',

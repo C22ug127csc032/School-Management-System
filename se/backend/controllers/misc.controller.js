@@ -4,11 +4,13 @@ import Student from '../models/Student.model.js';
 import Teacher from '../models/Teacher.model.js';
 import ClassModel from '../models/Class.model.js';
 import ClassSubject from '../models/ClassSubject.model.js';
-import Attendance from '../models/Attendance.model.js';
+import Subject from '../models/Subject.model.js';
 import { TIMETABLE_DAYS } from '../models/TimetableSlot.model.js';
 import { resolveAcademicYear } from '../utils/academicYear.js';
 import { getActivePeriodsForDisplay } from '../utils/periods.js';
 import { createPaginatedResponse, createSearchRegex, parseListQuery, resolveSort } from '../utils/query.js';
+import { getSettings } from '../utils/appSettings.js';
+import { fetchGovernmentHolidayRecords, mergeHolidayRecords } from '../utils/holidayCalendar.js';
 
 const isTeachingRole = role => ['teacher', 'class_teacher'].includes(role);
 const INDIA_TIMEZONE = 'Asia/Kolkata';
@@ -26,6 +28,21 @@ const getWeekdayName = value => {
 
 const parseDateKey = dateKey => new Date(`${dateKey}T00:00:00+05:30`);
 const TIMETABLE_DAY_ORDER = TIMETABLE_DAYS.reduce((acc, day, index) => ({ ...acc, [day]: index }), {});
+const addDays = (date, count) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + count);
+  return next;
+};
+
+const getNextWorkingDate = (afterDate, blockedDateKeys) => {
+  let cursor = addDays(afterDate, 1);
+
+  while (blockedDateKeys.has(toDateKey(cursor)) || getWeekdayName(cursor) === 'Sunday') {
+    cursor = addDays(cursor, 1);
+  }
+
+  return cursor;
+};
 
 const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) => {
   if (!exam?.startDate || !exam?.endDate) return [];
@@ -33,7 +50,8 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
   const scheduleMap = schedules.reduce((map, schedule) => {
     const key = toDateKey(schedule.date);
     if (!key) return map;
-    map[key] = schedule;
+    if (!map[key]) map[key] = [];
+    map[key].push(schedule);
     return map;
   }, {});
 
@@ -54,7 +72,12 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
     const isSunday = weekday === 'Sunday';
     const holidayReason = holidayMap[dateKey] || '';
     const isHoliday = Boolean(holidayReason);
-    const entry = scheduleMap[dateKey] || null;
+    const entries = (scheduleMap[dateKey] || []).sort((left, right) => {
+      const leftPeriodNo = Number(left.period?.periodNo ?? 999);
+      const rightPeriodNo = Number(right.period?.periodNo ?? 999);
+      return leftPeriodNo - rightPeriodNo;
+    });
+    const entry = entries[0] || null;
     const blocked = isSunday || isHoliday;
 
     calendarDays.push({
@@ -63,8 +86,10 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
       isSunday,
       isHoliday,
       holidayReason,
+      blockedLabel: isHoliday ? holidayReason : (isSunday ? 'Sunday' : ''),
       status: isHoliday ? 'holiday' : (isSunday ? 'sunday' : 'working_day'),
       blocked,
+      entries,
       entry,
     });
 
@@ -72,6 +97,60 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
   }
 
   return calendarDays;
+};
+
+const shiftExamScheduleSeriesForHoliday = async ({ examId, classId, holidayDate, blockedHolidayRecords = [] }) => {
+  const holidayDateKey = toDateKey(holidayDate);
+  if (!holidayDateKey) return { movedDays: 0, movedEntries: 0 };
+
+  const startOfHoliday = parseDateKey(holidayDateKey);
+  const affectedSchedules = await ExamSchedule.find({
+    exam: examId,
+    class: classId,
+    date: { $gte: startOfHoliday },
+    slotType: { $in: ['exam', 'revision'] },
+  })
+    .populate('period', 'periodNo')
+    .sort({ date: 1, startTime: 1, createdAt: 1 });
+
+  if (!affectedSchedules.length) {
+    return { movedDays: 0, movedEntries: 0 };
+  }
+
+  const blockedDateKeys = new Set((blockedHolidayRecords || []).map(record => toDateKey(record.date)).filter(Boolean));
+  blockedDateKeys.add(holidayDateKey);
+
+  const orderedDateKeys = [...new Set(affectedSchedules.map(item => toDateKey(item.date)).filter(Boolean))].sort();
+  let previousAssignedDate = startOfHoliday;
+  const dateMap = new Map();
+
+  orderedDateKeys.forEach(originalDateKey => {
+    const nextWorkingDate = getNextWorkingDate(previousAssignedDate, blockedDateKeys);
+    dateMap.set(originalDateKey, nextWorkingDate);
+    previousAssignedDate = nextWorkingDate;
+  });
+
+  const affectedByDateDesc = [...affectedSchedules].sort((left, right) => {
+    const leftTime = new Date(left.date).getTime();
+    const rightTime = new Date(right.date).getTime();
+    if (leftTime !== rightTime) return rightTime - leftTime;
+
+    const leftPeriod = Number(left.period?.periodNo ?? 999);
+    const rightPeriod = Number(right.period?.periodNo ?? 999);
+    return rightPeriod - leftPeriod;
+  });
+
+  for (const schedule of affectedByDateDesc) {
+    const originalDateKey = toDateKey(schedule.date);
+    const targetDate = dateMap.get(originalDateKey);
+    if (!targetDate) continue;
+
+    schedule.date = parseDateKey(toDateKey(targetDate));
+    schedule.day = undefined;
+    await schedule.save();
+  }
+
+  return { movedDays: dateMap.size, movedEntries: affectedSchedules.length };
 };
 
 const getLinkedTeacherIds = async req => {
@@ -470,6 +549,44 @@ export const createExam = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
+export const updateExam = async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.id);
+    if (!exam) return res.status(404).json({ success: false, message: 'Exam not found.' });
+
+    const update = {};
+    ['name', 'examType', 'startDate', 'endDate', 'grades', 'isPublished'].forEach(key => {
+      if (req.body[key] !== undefined) update[key] = req.body[key];
+    });
+    if (update.name !== undefined) update.name = String(update.name || '').trim();
+    if (update.startDate === '') update.startDate = null;
+    if (update.endDate === '') update.endDate = null;
+    if (update.grades && !Array.isArray(update.grades)) update.grades = [];
+
+    const updated = await Exam.findByIdAndUpdate(
+      req.params.id,
+      { $set: update },
+      { new: true, runValidators: true }
+    );
+    res.json({ success: true, data: updated, message: 'Exam updated.' });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+export const deleteExam = async (req, res) => {
+  try {
+    const exam = await Exam.findById(req.params.id);
+    if (!exam) return res.status(404).json({ success: false, message: 'Exam not found.' });
+
+    await Promise.all([
+      ExamSchedule.deleteMany({ exam: exam._id }),
+      Mark.deleteMany({ exam: exam._id }),
+    ]);
+    await Exam.findByIdAndDelete(exam._id);
+
+    res.json({ success: true, message: 'Exam deleted.' });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 export const getExamSchedule = async (req, res) => {
   try {
     const { examId, classId, includeCalendar } = req.query;
@@ -504,12 +621,13 @@ export const getExamSchedule = async (req, res) => {
         Exam.findById(examId).select('name startDate endDate'),
         getActivePeriodsForDisplay(ay, { isBreak: false }),
       ]);
+      const settings = await getSettings();
       const holidayRecords = exam?.startDate && exam?.endDate
-        ? await Attendance.find({
-          class: classId,
-          isHoliday: true,
-          date: { $gte: new Date(exam.startDate), $lte: new Date(exam.endDate) },
-        }).select('date holidayReason')
+        ? await fetchGovernmentHolidayRecords({
+          startDate: exam.startDate,
+          endDate: exam.endDate,
+          calendarUrl: settings?.governmentHolidayCalendarUrl,
+        })
         : [];
 
       return res.json({
@@ -551,21 +669,22 @@ export const createExamSchedule = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Exams cannot be scheduled on Sunday.' });
     }
 
-    const holidayRecord = hasWeeklySlot
-      ? null
-      : await Attendance.findOne({
-        class: payload.class,
-        isHoliday: true,
-        date: {
-          $gte: new Date(new Date(scheduleDate).setHours(0, 0, 0, 0)),
-          $lte: new Date(new Date(scheduleDate).setHours(23, 59, 59, 999)),
-        },
-      }).select('holidayReason');
+    const settings = await getSettings();
+    let blockedHolidayReason = '';
+    if (!hasWeeklySlot && scheduleDate) {
+      const governmentHolidayRecord = await fetchGovernmentHolidayRecords({
+        startDate: scheduleDate,
+        endDate: scheduleDate,
+        calendarUrl: settings?.governmentHolidayCalendarUrl,
+      }).then(records => records[0] || null);
 
-    if (holidayRecord && payload.slotType === 'exam') {
+      blockedHolidayReason = governmentHolidayRecord?.holidayReason || '';
+    }
+
+    if (blockedHolidayReason && (payload.slotType === 'exam' || payload.slotType === 'revision')) {
       return res.status(400).json({
         success: false,
-        message: `Exams cannot be scheduled on a holiday${holidayRecord.holidayReason ? `: ${holidayRecord.holidayReason}` : '.'}`,
+        message: `${payload.slotType === 'revision' ? 'Revision' : 'Exams'} cannot be scheduled on a holiday${blockedHolidayReason ? `: ${blockedHolidayReason}` : '.'}`,
       });
     }
 
@@ -613,7 +732,7 @@ export const createExamSchedule = async (req, res) => {
       payload.endPeriod = selectedEndPeriod?._id || payload.endPeriod || null;
     }
 
-    if (payload.slotType !== 'exam') {
+    if (payload.slotType === 'holiday' || payload.slotType === 'no_session') {
       payload.subject = null;
       payload.componentSubjects = [];
       payload.paperName = '';
@@ -627,12 +746,24 @@ export const createExamSchedule = async (req, res) => {
       payload.paperName = subjectAssignment?.subject?.name || payload.paperName;
     }
 
-    if (payload.slotType === 'exam' && !payload.subject && !(payload.componentSubjects || []).length) {
-      return res.status(400).json({ success: false, message: 'Subject is required for an exam slot.' });
+    if ((payload.slotType === 'exam' || payload.slotType === 'revision') && !payload.subject && !(payload.componentSubjects || []).length) {
+      return res.status(400).json({ success: false, message: `Subject is required for a ${payload.slotType === 'revision' ? 'revision' : 'exam'} slot.` });
     }
 
-    if (payload.slotType === 'exam' && !payload.paperName) {
-      return res.status(400).json({ success: false, message: 'Paper name is required for the exam slot.' });
+    if ((payload.slotType === 'exam' || payload.slotType === 'revision') && !payload.paperName) {
+      return res.status(400).json({ success: false, message: `Paper name is required for the ${payload.slotType === 'revision' ? 'revision' : 'exam'} slot.` });
+    }
+
+    if (!hasWeeklySlot && (payload.slotType === 'exam' || payload.slotType === 'revision')) {
+      await ExamSchedule.deleteMany({
+        exam: payload.exam,
+        class: payload.class,
+        date: {
+          $gte: new Date(new Date(scheduleDate).setHours(0, 0, 0, 0)),
+          $lte: new Date(new Date(scheduleDate).setHours(23, 59, 59, 999)),
+        },
+        slotType: { $in: ['holiday', 'no_session'] },
+      });
     }
 
     const existingQuery = {
@@ -641,12 +772,68 @@ export const createExamSchedule = async (req, res) => {
     };
 
     if (hasWeeklySlot) {
+      payload.day = String(payload.day);
       payload.date = null;
       existingQuery.day = payload.day;
     } else {
+      payload.day = undefined;
       const startOfDay = new Date(new Date(scheduleDate).setHours(0, 0, 0, 0));
       const endOfDay = new Date(new Date(scheduleDate).setHours(23, 59, 59, 999));
       existingQuery.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    if (payload.slotType === 'exam' || payload.slotType === 'revision') {
+      existingQuery.period = payload.period;
+    } else {
+      existingQuery.period = null;
+    }
+
+    if (!hasWeeklySlot && payload.slotType === 'holiday') {
+      const existingFullDayHoliday = await ExamSchedule.findOne({
+        exam: payload.exam,
+        class: payload.class,
+        date: {
+          $gte: new Date(new Date(scheduleDate).setHours(0, 0, 0, 0)),
+          $lte: new Date(new Date(scheduleDate).setHours(23, 59, 59, 999)),
+        },
+        slotType: 'holiday',
+      }).select('_id');
+
+      const blockedHolidayRecords = await mergeHolidayRecords(
+        await ExamSchedule.find({
+          exam: payload.exam,
+          class: payload.class,
+          slotType: 'holiday',
+          date: { $gte: new Date(new Date(scheduleDate).setHours(0, 0, 0, 0)) },
+        }).select('date note'),
+        await fetchGovernmentHolidayRecords({
+          startDate: scheduleDate,
+          endDate: addDays(scheduleDate, 60),
+          calendarUrl: settings?.governmentHolidayCalendarUrl,
+        }),
+      ).map(record => ({
+        date: record.date,
+        holidayReason: record.note || record.holidayReason || 'Holiday',
+      }));
+
+      if (!existingFullDayHoliday) {
+        await shiftExamScheduleSeriesForHoliday({
+          examId: payload.exam,
+          classId: payload.class,
+          holidayDate: scheduleDate,
+          blockedHolidayRecords,
+        });
+
+        await ExamSchedule.deleteMany({
+          exam: payload.exam,
+          class: payload.class,
+          date: {
+            $gte: new Date(new Date(scheduleDate).setHours(0, 0, 0, 0)),
+            $lte: new Date(new Date(scheduleDate).setHours(23, 59, 59, 999)),
+          },
+          slotType: { $in: ['exam', 'revision'] },
+        });
+      }
     }
 
     const existing = await ExamSchedule.findOne(existingQuery).select('_id');
@@ -739,7 +926,7 @@ export const announceExamSchedule = async (req, res) => {
       type: 'exam',
       isPublished: true,
       classRefs: classId,
-      audience: { $all: ['student', 'parent'] },
+      audience: { $all: ['teacher', 'student', 'parent'] },
     });
 
     let circular;
@@ -753,7 +940,7 @@ export const announceExamSchedule = async (req, res) => {
         title,
         content,
         type: 'exam',
-        audience: ['student', 'parent'],
+        audience: ['teacher', 'student', 'parent'],
         classRefs: [classId],
         publishDate: new Date(),
         isPublished: true,
@@ -764,7 +951,7 @@ export const announceExamSchedule = async (req, res) => {
     res.json({
       success: true,
       data: { exam, class: cls, circular, schedules },
-      message: 'Exam schedule announced to students and parents.',
+      message: 'Exam schedule announced to the class teacher, students, and parents.',
     });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -793,7 +980,7 @@ export const getMarks = async (req, res) => {
 
 export const saveMarks = async (req, res) => {
   try {
-    const { marks } = req.body; // array of {examId, studentId, subjectId, classId, marksObtained, maxMarks, isAbsent}
+    const { marks } = req.body; // array of marks rows with theory/internal components
     const results = [];
     for (const m of marks) {
       if (isTeachingRole(req.user.role) && req.user.teacherRef) {
@@ -803,17 +990,86 @@ export const saveMarks = async (req, res) => {
         }
       }
 
-      const grade = calcGrade(m.marksObtained, m.maxMarks);
-      const isPassed = !m.isAbsent && m.marksObtained >= (m.passMarks || 35);
+      const subjectDoc = await Subject.findById(m.subjectId).select('name code');
+      const structure = getMarksStructure(subjectDoc);
+      const theoryMaxMarks = Number(m.theoryMaxMarks ?? structure.theoryMaxMarks);
+      const assessmentMaxMarks = Number(m.assessmentMaxMarks ?? structure.assessmentMaxMarks);
+      const theoryMarks = m.isAbsent ? 0 : Number(m.theoryMarks ?? 0);
+      const assessmentMarks = m.isAbsent ? 0 : Number(m.assessmentMarks ?? 0);
+
+      if (!Number.isFinite(theoryMarks) || !Number.isFinite(assessmentMarks)) {
+        return res.status(400).json({ success: false, message: 'Theory and internal marks must be valid numbers.' });
+      }
+      if (theoryMarks < 0 || assessmentMarks < 0) {
+        return res.status(400).json({ success: false, message: 'Marks cannot be less than 0.' });
+      }
+      if (theoryMarks > theoryMaxMarks) {
+        return res.status(400).json({ success: false, message: `${subjectDoc?.name || 'Subject'} theory marks cannot be more than ${theoryMaxMarks}.` });
+      }
+      if (assessmentMarks > assessmentMaxMarks) {
+        return res.status(400).json({ success: false, message: `${subjectDoc?.name || 'Subject'} internal/practical marks cannot be more than ${assessmentMaxMarks}.` });
+      }
+
+      const marksObtained = theoryMarks + assessmentMarks;
+      const maxMarks = theoryMaxMarks + assessmentMaxMarks;
+      const grade = calcGrade(marksObtained, maxMarks);
+      const isPassed = !m.isAbsent && marksObtained >= (m.passMarks || 35);
       const doc = await Mark.findOneAndUpdate(
         { exam: m.examId, student: m.studentId, subject: m.subjectId },
-        { ...m, exam: m.examId, student: m.studentId, subject: m.subjectId, class: m.classId, grade, isPassed, enteredBy: req.user._id },
+        {
+          ...m,
+          exam: m.examId,
+          student: m.studentId,
+          subject: m.subjectId,
+          class: m.classId,
+          theoryMarks,
+          theoryMaxMarks,
+          assessmentMarks,
+          assessmentMaxMarks,
+          marksObtained,
+          maxMarks,
+          grade,
+          isPassed,
+          enteredBy: req.user._id,
+        },
         { upsert: true, new: true },
       );
       results.push(doc);
     }
     res.json({ success: true, data: results, message: `${results.length} marks saved.` });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+export const deleteMarks = async (req, res) => {
+  try {
+    const { examId, studentId, classId } = req.query;
+    const ay = resolveAcademicYear(req.query.academicYear);
+
+    if (!examId || !studentId || !classId) {
+      return res.status(400).json({ success: false, message: 'examId, classId, and studentId are required.' });
+    }
+
+    if (isTeachingRole(req.user.role) && req.user.teacherRef) {
+      const canAccess = await canManageExamClass(req, ay, classId);
+      if (!canAccess) {
+        return res.status(403).json({ success: false, message: 'You can only delete marks for your own class.' });
+      }
+    }
+
+    const result = await Mark.deleteMany({
+      exam: examId,
+      student: studentId,
+      class: classId,
+    });
+
+    return res.json({
+      success: true,
+      deletedCount: result.deletedCount || 0,
+      message: result.deletedCount ? 'Saved marks deleted.' : 'No saved marks found to delete.',
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
 };
 
 export const getReportCard = async (req, res) => {
@@ -877,6 +1133,10 @@ export const getReportCard = async (req, res) => {
         marks: marks.map(mark => ({
           _id: mark._id,
           subject: mark.subject,
+          theoryMarks: mark.theoryMarks ?? mark.marksObtained,
+          theoryMaxMarks: mark.theoryMaxMarks ?? mark.maxMarks,
+          assessmentMarks: mark.assessmentMarks ?? 0,
+          assessmentMaxMarks: mark.assessmentMaxMarks ?? 0,
           marksObtained: mark.marksObtained,
           maxMarks: mark.maxMarks,
           grade: mark.grade,
@@ -908,6 +1168,23 @@ const calcGrade = (obtained, max) => {
   if (pct >= 50) return 'C';
   if (pct >= 40) return 'D';
   return 'F';
+};
+
+const normalizeMarkSubjectName = subject => String(subject?.name || subject?.code || '').trim().toLowerCase();
+const isSocialScienceMarkSubject = subject => {
+  const value = normalizeMarkSubjectName(subject);
+  return value.includes('social science') || value.includes('socialscience');
+};
+const isScienceMarkSubject = subject => {
+  const value = normalizeMarkSubjectName(subject);
+  return !isSocialScienceMarkSubject(subject) && value.includes('science');
+};
+const getMarksStructure = subject => {
+  if (isScienceMarkSubject(subject)) {
+    return { theoryMaxMarks: 75, assessmentMaxMarks: 25, totalMaxMarks: 100, assessmentLabel: 'Practical / Internal' };
+  }
+
+  return { theoryMaxMarks: 90, assessmentMaxMarks: 10, totalMaxMarks: 100, assessmentLabel: 'Internal' };
 };
 
 // ── LIBRARY ───────────────────────────────────────────────────────────────────
@@ -1095,7 +1372,7 @@ export default {
   getOutpasses, createOutpass, updateOutpassStatus,
   getCirculars, createCircular, deleteCircular,
   getHomework, createHomework, deleteHomework,
-  getExams, createExam, getExamSchedule, createExamSchedule, announceExamSchedule, getMarks, saveMarks, getReportCard,
+  getExams, createExam, updateExam, deleteExam, getExamSchedule, createExamSchedule, announceExamSchedule, getMarks, saveMarks, deleteMarks, getReportCard,
   getBooks, createBook, updateBook, issueBook, returnBook, getIssues,
   getInventory, createInventoryItem, recordInventoryTxn,
   getExpenses, createExpense,

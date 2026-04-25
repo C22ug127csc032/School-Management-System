@@ -47,6 +47,7 @@ export const assignFees = async (req, res) => {
 
     const disc  = Number(discountAmount || 0);
     const total = structure.totalAmount - disc;
+    const effectiveTerm = term || structure.term || structure.name;
 
     if (classId) {
       const students = await Student.find({
@@ -63,7 +64,7 @@ export const assignFees = async (req, res) => {
       const existingFees = await StudentFees.find({
         student: { $in: studentIds },
         academicYear: ay,
-        term: term || null,
+        structure: structureId,
       }).select('student');
 
       const existingStudentIds = new Set(existingFees.map(item => String(item.student)));
@@ -82,7 +83,7 @@ export const assignFees = async (req, res) => {
           student: student._id,
           structure: structureId,
           academicYear: ay,
-          term: term || null,
+          term: effectiveTerm,
           feeHeads: structure.feeHeads,
           totalAmount: total,
           dueAmount: total,
@@ -120,12 +121,12 @@ export const assignFees = async (req, res) => {
     const student = await Student.findById(studentId);
     if (!student) return res.status(404).json({ success: false, message: 'Student not found.' });
 
-    const existing = await StudentFees.findOne({ student: studentId, academicYear: ay, term: term || null });
+    const existing = await StudentFees.findOne({ student: studentId, academicYear: ay, structure: structureId });
     if (existing) return res.status(409).json({ success: false, message: 'Fees already assigned for this period.' });
 
     const sf = await StudentFees.create({
       student: studentId, structure: structureId, academicYear: ay,
-      term: term || null, feeHeads: structure.feeHeads,
+      term: effectiveTerm, feeHeads: structure.feeHeads,
       totalAmount: total, dueAmount: total, paidAmount: 0,
       discountAmount: disc, discountReason,
       dueDate: dueDate ? new Date(dueDate) : undefined,

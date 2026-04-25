@@ -19,6 +19,7 @@ const appSettingSchema = new mongoose.Schema({
   affiliationNo: { type: String, default: '' },
   boardName:     { type: String, default: 'CBSE' },
   currentAcademicYear: { type: String, default: '' },
+  governmentHolidayCalendarUrl: { type: String, default: '' },
 
   // Timetable settings
   schoolStartTime:   { type: String, default: '08:00' },

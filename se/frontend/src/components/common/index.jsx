@@ -81,12 +81,25 @@ export function ConfirmDialog({ open, onClose, onConfirm, title = 'Confirm', mes
 }
 
 // ── Searchable Select ─────────────────────────────────────────────────────────
-export function SearchableSelect({ options = [], value, onChange, placeholder = 'Select...', labelKey = 'label', valueKey = 'value', disabled }) {
+export function SearchableSelect({
+  options = [],
+  value,
+  onChange,
+  placeholder = 'Select...',
+  labelKey = 'label',
+  valueKey = 'value',
+  disabled,
+  optionClassName,
+  selectedClassName,
+}) {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef(null);
 
   const selected = options.find(o => o[valueKey] === value);
+  const resolvedSelectedClassName = typeof selectedClassName === 'function'
+    ? selectedClassName(selected)
+    : (selectedClassName || '');
 
   useEffect(() => {
     const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -104,7 +117,7 @@ export function SearchableSelect({ options = [], value, onChange, placeholder = 
         onClick={() => setOpen(o => !o)}
         className="input flex items-center justify-between text-left"
       >
-        <span className={selected ? '' : 'text-slate-400'}>{selected ? selected[labelKey] : placeholder}</span>
+        <span className={selected ? resolvedSelectedClassName : 'text-slate-400'}>{selected ? selected[labelKey] : placeholder}</span>
         <FiChevronDown className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -119,13 +132,18 @@ export function SearchableSelect({ options = [], value, onChange, placeholder = 
           <div className="max-h-80 overflow-y-auto">
             {filtered.length === 0 ? (
               <p className="px-3 py-4 text-center text-xs text-slate-400">No results</p>
-            ) : filtered.map(o => (
-              <button
-                key={o[valueKey]} type="button"
-                onClick={() => { onChange(o[valueKey]); setOpen(false); setQuery(''); }}
-                className={`w-full px-3 py-2 text-left text-sm transition hover:bg-slate-50 ${o[valueKey] === value ? 'bg-primary-50 font-semibold text-primary-700' : ''}`}
-              >{o[labelKey]}</button>
-            ))}
+            ) : filtered.map(o => {
+              const resolvedOptionClassName = typeof optionClassName === 'function'
+                ? optionClassName(o)
+                : (optionClassName || '');
+              return (
+                <button
+                  key={o[valueKey]} type="button"
+                  onClick={() => { onChange(o[valueKey]); setOpen(false); setQuery(''); }}
+                  className={`w-full px-3 py-2 text-left text-sm transition hover:bg-slate-50 ${o[valueKey] === value ? 'bg-primary-50 font-semibold text-primary-700' : ''} ${resolvedOptionClassName}`}
+                >{o[labelKey]}</button>
+              );
+            })}
           </div>
         </div>
       )}

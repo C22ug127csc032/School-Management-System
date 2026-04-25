@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { FiEdit2, FiPlus, FiTrash2, FiUsers } from 'react-icons/fi';
 import api from '../../api/axios.js';
 import useListParams from '../../hooks/useListParams.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import {
   DataTable,
   FilterSelect,
@@ -44,6 +45,7 @@ const emptyForm = {
 };
 
 export default function StaffPage() {
+  const { user } = useAuth();
   const [staff, setStaff] = useState([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
@@ -147,6 +149,7 @@ export default function StaffPage() {
   };
 
   const activeCount = useMemo(() => staff.filter(member => member.isActive).length, [staff]);
+  const isSuperAdmin = user?.role === 'super_admin';
   const columns = [
     {
       key: 'staff',
@@ -213,15 +216,15 @@ export default function StaffPage() {
   return (
     <div className="float-in">
       <PageHeader
-        title="Staff"
-        subtitle="Manage non-teaching staff accounts, roles, and login access."
+        title={isSuperAdmin ? 'Access & Staff' : 'Staff'}
+        subtitle={isSuperAdmin ? 'Govern school-office access, role coverage, and login readiness from the super admin layer.' : 'Manage non-teaching staff accounts, roles, and login access.'}
         actions={<button onClick={() => openModal()} className="btn-primary"><FiPlus />Add Staff</button>}
       />
 
       <div className="mb-4 grid gap-4 md:grid-cols-3">
-        <StatCard icon={FiUsers} label="Visible Staff" value={total} sub="Matching the current filters" />
+        <StatCard icon={FiUsers} label={isSuperAdmin ? 'Visible Access Roles' : 'Visible Staff'} value={total} sub="Matching the current filters" />
         <StatCard icon={FiUsers} label="Active On Page" value={activeCount} sub="Currently active accounts" />
-        <StatCard icon={FiUsers} label="Roles Covered" value={STAFF_ROLE_OPTIONS.length} sub="School office and admin roles" />
+        <StatCard icon={FiUsers} label="Roles Covered" value={STAFF_ROLE_OPTIONS.length} sub={isSuperAdmin ? 'Administrative roles under platform governance' : 'School office and admin roles'} />
       </div>
 
       <div className="campus-panel mb-4 p-4">

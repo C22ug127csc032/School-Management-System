@@ -89,21 +89,33 @@ function derivePageMeta(pathname, role) {
   for (const entry of NAV) {
     if (!canAccess(role, entry)) continue;
     if (entry.type === 'link' && matchPath(pathname, entry.to)) {
-      return { title: entry.label, subtitle: 'Overview and operational insights', section: 'Workspace' };
+      return {
+        title: role === ROLES.SUPER_ADMIN && entry.to === '/admin' ? 'Control Center' : entry.label,
+        subtitle: role === ROLES.SUPER_ADMIN ? 'Platform oversight, access governance, and school operations' : 'Overview and operational insights',
+        section: 'Workspace',
+      };
     }
     if (entry.type === 'group') {
       const child = entry.children?.find(item => canAccess(role, item) && matchPath(pathname, item.to));
       if (child) {
         return {
           title: child.label,
-          subtitle: `Manage ${child.label.toLowerCase()} for your school operations`,
+          subtitle: role === ROLES.SUPER_ADMIN
+            ? `Control ${child.label.toLowerCase()} across the platform and school workspace`
+            : `Manage ${child.label.toLowerCase()} for your school operations`,
           section: entry.label,
         };
       }
     }
   }
 
-  return { title: 'Administration', subtitle: 'Run every part of the school from one place', section: 'Workspace' };
+  return {
+    title: role === ROLES.SUPER_ADMIN ? 'Platform Control' : 'Administration',
+    subtitle: role === ROLES.SUPER_ADMIN
+      ? 'Govern platform access, school setup, and operational health from one place'
+      : 'Run every part of the school from one place',
+    section: 'Workspace',
+  };
 }
 
 export default function AdminLayout() {
@@ -130,18 +142,37 @@ export default function AdminLayout() {
 
   const pageMeta = useMemo(() => derivePageMeta(location.pathname, user?.role), [location.pathname, user?.role]);
   const isDashboardPage = location.pathname === '/admin';
+  const isSuperAdmin = user?.role === ROLES.SUPER_ADMIN;
+  const portalLabel = isSuperAdmin ? 'Super Admin Portal' : 'Administration Portal';
+  const sidebarCopy = isSuperAdmin ? 'Platform Control Center' : 'Administration Panel';
 
   const navGroups = useMemo(() => {
     return NAV.map(entry => {
       if (!canAccess(user?.role, entry)) return null;
+      const label = (() => {
+        if (!isSuperAdmin) return entry.label;
+        if (entry.key === 'dash') return 'Control Center';
+        if (entry.key === 'admin') return 'Platform';
+        return entry.label;
+      })();
       if (entry.type === 'group') {
         const visibleChildren = entry.children.filter(child => canAccess(user?.role, child));
         if (!visibleChildren.length) return null;
-        return { ...entry, children: visibleChildren };
+        return {
+          ...entry,
+          label,
+          children: visibleChildren.map(child => {
+            if (!isSuperAdmin) return child;
+            if (child.to === '/admin/staff') return { ...child, label: 'Access & Staff' };
+            if (child.to === '/admin/settings') return { ...child, label: 'School Setup' };
+            if (child.to === '/admin/reports') return { ...child, label: 'Compliance View' };
+            return child;
+          }),
+        };
       }
-      return entry;
+      return { ...entry, label };
     }).filter(Boolean);
-  }, [user?.role]);
+  }, [isSuperAdmin, user?.role]);
 
   const handleLogout = () => {
     logout();
@@ -173,7 +204,7 @@ export default function AdminLayout() {
           </div>
           <div className="portal-expand-copy min-w-0">
             <p className="truncate text-sm font-semibold text-white">School ERP</p>
-            <p className="portal-sidebar-copy">Administration Panel</p>
+            <p className="portal-sidebar-copy">{sidebarCopy}</p>
           </div>
         </div>
       </div>
@@ -261,7 +292,7 @@ export default function AdminLayout() {
           </button>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-700">Administration Portal</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary-700">{portalLabel}</p>
             <h1 className="truncate text-base font-semibold text-text-primary">{pageMeta.title}</h1>
             <p className="hidden text-xs text-text-secondary sm:block">{pageMeta.subtitle}</p>
           </div>

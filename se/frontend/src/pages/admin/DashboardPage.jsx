@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  FiActivity,
   FiAlertCircle,
   FiArrowRight,
   FiBarChart2,
@@ -12,6 +13,9 @@ import {
   FiDollarSign,
   FiFileText,
   FiGrid,
+  FiLock,
+  FiSettings,
+  FiShield,
   FiTrendingUp,
   FiUser,
   FiUsers,
@@ -53,6 +57,146 @@ export default function DashboardPage() {
   }, [user?.role]);
 
   if (loading) return <PageLoader />;
+
+  if (user?.role === ROLES.SUPER_ADMIN && data?.isSuperAdmin) {
+    const superStats = [
+      { label: 'Active Accounts', value: data?.accounts?.active ?? 0, hint: `${data?.accounts?.inactive ?? 0} inactive`, icon: FiShield },
+      { label: 'Students With Access', value: data?.accounts?.students ?? 0, hint: 'Portal-ready student accounts', icon: FiUsers },
+      { label: 'Parents Linked', value: data?.accounts?.parents ?? 0, hint: 'Family portal accounts', icon: FiUser },
+      { label: 'Setup Complete', value: `${data?.configHealth?.percent ?? 0}%`, hint: `${data?.configHealth?.completed ?? 0}/${data?.configHealth?.total ?? 0} governance checks`, icon: FiSettings },
+    ];
+
+    const controlCards = [
+      {
+        title: 'Access Governance',
+        icon: FiLock,
+        value: `${data?.roles?.admin ?? 0} admin`,
+        subvalue: `${data?.roles?.principal ?? 0} principal, ${data?.roles?.teacher ?? 0} teacher, ${data?.roles?.class_teacher ?? 0} class teacher`,
+        tone: 'text-amber-700',
+      },
+      {
+        title: 'School Operations',
+        icon: FiActivity,
+        value: `${data?.operations?.students?.active ?? 0} active students`,
+        subvalue: `${data?.operations?.pendingLeaves ?? 0} pending leave requests, ${data?.operations?.todaySubstitutions ?? 0} substitutions today`,
+        tone: 'text-sky-700',
+      },
+      {
+        title: 'Finance Visibility',
+        icon: FiDollarSign,
+        value: formatCurrency(data?.operations?.monthCollection ?? 0),
+        subvalue: `${formatCurrency(data?.operations?.pendingDues ?? 0)} still outstanding`,
+        tone: 'text-emerald-700',
+      },
+    ];
+
+    const attentionItems = [
+      {
+        title: 'First login pending',
+        text: `${data?.accounts?.firstLoginPending ?? 0} account(s) still need first-time password completion.`,
+      },
+      {
+        title: 'Configuration health',
+        text: data?.configHealth?.missing?.length
+          ? `Missing setup items: ${data.configHealth.missing.join(', ')}.`
+          : 'Core school configuration is complete and ready for live operations.',
+      },
+      {
+        title: 'Coverage snapshot',
+        text: `${data?.operations?.teachers ?? 0} teachers, ${data?.operations?.classes ?? 0} active classes, and ${data?.accounts?.staff ?? 0} staff accounts are currently on the platform.`,
+      },
+    ];
+
+    const platformActions = [
+      { title: 'Review access and staff', to: '/admin/staff' },
+      { title: 'Finish school setup', to: '/admin/settings' },
+      { title: 'Open operational dashboard', to: '/admin/students' },
+    ];
+
+    return (
+      <div className="space-y-8">
+        <HeroPanel
+          eyebrow="Platform Control Center"
+          title={`Super admin workspace for ${data?.school?.name || 'your school'}`}
+          description="This view behaves like a real-world super admin layer: access governance, configuration health, and operational visibility live together instead of being hidden inside a normal school admin dashboard."
+          meta={[
+            { label: 'School Code', value: data?.school?.code || 'SCH001' },
+            { label: 'Board', value: data?.school?.board || 'Not configured' },
+            { label: 'Academic Year', value: data?.school?.academicYear || academicYear },
+          ]}
+        />
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {superStats.map(item => (
+            <MetricCard key={item.label} {...item} />
+          ))}
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="campus-panel p-6">
+            <SectionHeading title="Platform Actions" caption="The decisions a real super admin makes most often" />
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              {platformActions.map(item => (
+                <QuickLinkCard key={item.to} title={item.title} to={item.to} />
+              ))}
+            </div>
+          </div>
+
+          <div className="campus-panel p-6">
+            <SectionHeading title="Needs Attention" caption="Short governance notes from live system data" />
+            <div className="mt-5 space-y-4">
+              {attentionItems.map(item => (
+                <InsightRow key={item.title} icon={FiAlertCircle} title={item.title} text={item.text} />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="campus-panel p-6">
+            <SectionHeading title="Governance Summary" caption="Control-plane visibility over people, access, and finance" />
+            <div className="mt-5 space-y-4">
+              {controlCards.map(item => (
+                <div key={item.title} className="rounded-[22px] border border-slate-200 bg-slate-50/75 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-white ${item.tone}`}>
+                      <item.icon className="text-lg" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{item.title}</p>
+                      <p className="mt-1 text-xl font-black text-slate-900">{item.value}</p>
+                      <p className="text-sm text-slate-500">{item.subvalue}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="campus-panel p-6">
+            <SectionHeading title="Role Distribution" caption="How access is currently spread across the institution" />
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {[
+                ['Super Admin', data?.roles?.super_admin],
+                ['Admin', data?.roles?.admin],
+                ['Principal', data?.roles?.principal],
+                ['Teacher', data?.roles?.teacher],
+                ['Class Teacher', data?.roles?.class_teacher],
+                ['Accountant', data?.roles?.accountant],
+                ['Librarian', data?.roles?.librarian],
+                ['Admission Staff', data?.roles?.admission_staff],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-[20px] border border-slate-200 bg-white/85 px-4 py-3 shadow-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{label}</p>
+                  <p className="mt-1 text-2xl font-black tracking-tight text-slate-900">{value ?? 0}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isTeacherView = Boolean(data?.isTeacher);
 

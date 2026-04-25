@@ -5,7 +5,7 @@ const feeHeadSchema = new mongoose.Schema({
   headName:   { type: String, required: true },
   amount:     { type: Number, required: true },
   isOptional: { type: Boolean, default: false },
-  applicableTo: { type: String, enum: ['all','hosteler','day_scholar'], default: 'all' },
+  applicableTo: { type: String, enum: ['all', 'hosteler', 'day_scholar', 'transport', 'no_transport'], default: 'all' },
 }, { _id: false });
 
 const installmentSchema = new mongoose.Schema({
@@ -59,7 +59,7 @@ const studentFeesSchema = new mongoose.Schema({
   assignedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
-studentFeesSchema.index({ student: 1, academicYear: 1, term: 1 }, { unique: true, sparse: true });
+studentFeesSchema.index({ student: 1, academicYear: 1, structure: 1 }, { unique: true, sparse: true });
 
 export const StudentFees = mongoose.model('StudentFees', studentFeesSchema);
 
