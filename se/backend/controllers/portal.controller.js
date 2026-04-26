@@ -12,11 +12,6 @@ import { fetchGovernmentHolidayRecords, mergeHolidayRecords } from '../utils/hol
 
 const PORTAL_ROLES = ['parent', 'student'];
 const INDIA_TIMEZONE = 'Asia/Kolkata';
-const EXAM_TIMETABLE_SLOTS = [
-  { key: 'morning', label: 'Morning' },
-  { key: 'afternoon', label: 'Afternoon' },
-];
-
 const toDateKey = value => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -37,8 +32,8 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
   const scheduleMap = schedules.reduce((map, schedule) => {
     const key = toDateKey(schedule.date);
     if (!key) return map;
-    map[key] = map[key] || {};
-    map[key][schedule.slotName || 'morning'] = schedule;
+    if (!map[key]) map[key] = [];
+    map[key].push(schedule);
     return map;
   }, {});
 
@@ -59,30 +54,12 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
     const isSunday = weekday === 'Sunday';
     const holidayReason = holidayMap[dateKey] || '';
     const isHoliday = Boolean(holidayReason);
-    const slots = EXAM_TIMETABLE_SLOTS.map(slot => {
-      const entry = scheduleMap[dateKey]?.[slot.key] || null;
-      const blocked = isSunday || isHoliday;
-
-      if (entry) {
-        return {
-          key: slot.key,
-          label: slot.label,
-          blocked,
-          entry,
-          status: blocked ? 'blocked_with_entry' : (entry.slotType || 'exam'),
-        };
-      }
-
-      if (isHoliday) {
-        return { key: slot.key, label: slot.label, blocked: true, entry: null, status: 'holiday', note: holidayReason || 'Holiday' };
-      }
-
-      if (isSunday) {
-        return { key: slot.key, label: slot.label, blocked: true, entry: null, status: 'sunday', note: 'Sunday' };
-      }
-
-      return { key: slot.key, label: slot.label, blocked: false, entry: null, status: 'empty' };
+    const entries = (scheduleMap[dateKey] || []).sort((left, right) => {
+      const leftPeriodNo = Number(left.period?.periodNo ?? 999);
+      const rightPeriodNo = Number(right.period?.periodNo ?? 999);
+      return leftPeriodNo - rightPeriodNo;
     });
+    const entry = entries[0] || null;
 
     calendarDays.push({
       date: dateKey,
@@ -92,7 +69,9 @@ const buildExamCalendarDays = ({ exam, schedules = [], holidayRecords = [] }) =>
       holidayReason,
       blockedLabel: isHoliday ? holidayReason : (isSunday ? 'Sunday' : ''),
       status: isHoliday ? 'holiday' : (isSunday ? 'sunday' : 'working_day'),
-      slots,
+      blocked: isSunday || isHoliday,
+      entries,
+      entry,
     });
 
     cursor.setDate(cursor.getDate() + 1);
@@ -578,15 +557,17 @@ export const getPortalExams = async (req, res) => {
 
     const settings = await getSettings();
 
-    const [schedules, marks, holidayRecords] = await Promise.all([
+    const [schedules, marks, holidayRecords, periods] = await Promise.all([
       student.classRef?._id
         ? ExamSchedule.find({ class: student.classRef._id, exam: { $in: examIds } })
           .populate('exam', 'name examType')
           .populate('subject', 'name code color')
           .populate('componentSubjects', 'name code color')
+          .populate('period', 'name periodNo startTime endTime')
+          .populate('endPeriod', 'name periodNo startTime endTime')
           .sort({ date: 1 })
         : [],
-      Mark.find({ student: student._id, exam: { $in: examIds } }).select('exam marksObtained maxMarks isPassed isAbsent'),
+      Mark.find({ student: student._id, exam: { $in: examIds }, workflowStatus: 'published' }).select('exam marksObtained maxMarks isPassed isAbsent'),
       student.classRef?._id && dateBounds.min && dateBounds.max
         ? mergeHolidayRecords(
           await Attendance.find({
@@ -601,6 +582,7 @@ export const getPortalExams = async (req, res) => {
           }),
         )
         : [],
+      getActivePeriodsForDisplay(student.academicYear),
     ]);
 
     const marksByExam = marks.reduce((map, mark) => {
@@ -644,7 +626,7 @@ export const getPortalExams = async (req, res) => {
       return map;
     }, {});
 
-    res.json({ success: true, data: { student: toStudentSummary(student), exams: examCards, schedules, calendarByExam } });
+    res.json({ success: true, data: { student: toStudentSummary(student), exams: examCards, schedules, calendarByExam, periods } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -660,7 +642,7 @@ export const getPortalReportCard = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Report card not found for this student.' });
     }
 
-    const marks = await Mark.find({ exam: exam._id, student: student._id })
+    const marks = await Mark.find({ exam: exam._id, student: student._id, workflowStatus: 'published' })
       .populate('subject', 'name code')
       .sort({ createdAt: 1 });
 

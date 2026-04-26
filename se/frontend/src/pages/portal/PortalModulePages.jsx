@@ -138,58 +138,105 @@ function StudentContextCard({ student, extra }) {
   );
 }
 
-const EXAM_CALENDAR_STYLES = {
-  exam_day: {
-    card: 'border-emerald-200 bg-emerald-50/80',
-    badge: 'bg-emerald-600 text-white',
-    label: 'Exam Day',
-  },
-  working_day: {
-    card: 'border-slate-200 bg-slate-50',
-    badge: 'bg-slate-600 text-white',
-    label: 'Working Day',
-  },
-  holiday: {
-    card: 'border-rose-200 bg-rose-50/80',
-    badge: 'bg-rose-600 text-white',
-    label: 'Holiday',
-  },
-  sunday: {
-    card: 'border-amber-200 bg-amber-50/80',
-    badge: 'bg-amber-600 text-white',
-    label: 'Sunday',
-  },
-  blocked_with_entry: {
-    card: 'border-red-300 bg-red-50/90',
-    badge: 'bg-red-700 text-white',
-    label: 'Conflict',
-  },
-  exam: {
-    card: 'border-emerald-200 bg-emerald-50/80',
-    badge: 'bg-emerald-600 text-white',
-    label: 'Exam',
-  },
-  revision: {
-    card: 'border-sky-200 bg-sky-50/80',
-    badge: 'bg-sky-600 text-white',
-    label: 'Revision',
-  },
-  no_session: {
-    card: 'border-slate-200 bg-slate-100',
-    badge: 'bg-slate-600 text-white',
-    label: 'No Session',
-  },
-  empty: {
-    card: 'border-slate-200 bg-white',
-    badge: 'bg-slate-500 text-white',
-    label: 'Empty',
-  },
-  no_exam: {
-    card: 'border-slate-200 bg-slate-50',
-    badge: 'bg-slate-600 text-white',
-    label: 'No Exam',
-  },
-};
+function getEntryPeriodRange(entry, periods) {
+  if (!entry?.period || !entry?.endPeriod) return null;
+  const startIndex = periods.findIndex(period => String(period._id) === String(entry.period._id || entry.period));
+  const endIndex = periods.findIndex(period => String(period._id) === String(entry.endPeriod._id || entry.endPeriod));
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return null;
+  return { startIndex, endIndex, span: endIndex - startIndex + 1 };
+}
+
+function PortalExamTimetableGrid({ calendarDays, periods }) {
+  if (!periods.length) {
+    return <EmptyState title="No timetable periods available" description="School periods are not available for this exam timetable yet." />;
+  }
+
+  return (
+    <div className="tt-container-fixed pb-6">
+      <table className="tt-grid !table-fixed !w-full">
+        <thead>
+          <tr className="!table-row">
+            <th className="tt-header-cell tt-day-header !w-24 !p-1">Day</th>
+            {periods.map(period => (
+              <th key={period._id} className="tt-header-cell !p-0.5">
+                <div className="flex flex-col items-center">
+                  <span className="w-full truncate text-[8px] font-black uppercase tracking-tighter text-slate-800 leading-none">{period.name}</span>
+                  <span className="mt-0.5 w-full truncate text-[7px] font-bold text-slate-400">{period.startTime}-{period.endTime}</span>
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {calendarDays.map(day => {
+            const dayEntries = day.entries || (day.entry ? [day.entry] : []);
+            const fullDayEntry = dayEntries.find(item => item?.slotType === 'holiday' || item?.slotType === 'no_session') || null;
+            const blockedRow = !fullDayEntry && dayEntries.length === 0 && (day.isHoliday || day.isSunday);
+            const rangedEntries = dayEntries
+              .filter(item => item?.slotType === 'exam' || item?.slotType === 'revision')
+              .map(item => ({ entry: item, range: getEntryPeriodRange(item, periods) }))
+              .filter(item => item.range);
+
+            return (
+              <tr key={day.date} className="!table-row">
+                <td className="tt-header-cell tt-day-header !bg-white !text-center !font-black !text-[10px] !py-1">
+                  <div className="leading-none">
+                    <div>{day.weekday.slice(0, 3)}</div>
+                    <div className="mt-1 text-[8px] font-bold text-slate-400 normal-case">{formatIndianDate(day.date)}</div>
+                  </div>
+                </td>
+                {fullDayEntry ? (
+                  <td colSpan={periods.length} className="tt-slot !table-cell" style={{ borderTop: `2px solid ${fullDayEntry?.slotType === 'holiday' ? '#f43f5e' : '#64748b'}` }}>
+                    <div className="flex h-full w-full flex-col items-center justify-center text-center leading-none">
+                      <p className="tt-slot-subject !text-[10px] truncate w-full">{fullDayEntry?.slotType === 'holiday' ? 'Holiday' : 'No Session'}</p>
+                      <p className="tt-slot-teacher !text-[7px] truncate w-full opacity-70">{fullDayEntry?.note || day.holidayReason || 'Full day entry'}</p>
+                    </div>
+                  </td>
+                ) : blockedRow ? (
+                  <td colSpan={periods.length} className="tt-slot !table-cell bg-rose-50" style={{ borderTop: `2px solid ${day.isHoliday ? '#f43f5e' : '#64748b'}` }}>
+                    <div className="flex h-full w-full flex-col items-center justify-center text-center leading-none">
+                      <p className="tt-slot-subject !text-[10px] truncate w-full">{day.isHoliday ? 'Government Holiday' : 'Sunday'}</p>
+                      <p className="tt-slot-teacher !text-[7px] truncate w-full opacity-70">{day.blockedLabel || day.holidayReason || 'Blocked day'}</p>
+                    </div>
+                  </td>
+                ) : periods.map((period, index) => {
+                  const coveringEntry = rangedEntries.find(item => index >= item.range.startIndex && index <= item.range.endIndex);
+                  if (coveringEntry && index > coveringEntry.range.startIndex) {
+                    return null;
+                  }
+
+                  if (coveringEntry && index === coveringEntry.range.startIndex) {
+                    const { entry, range } = coveringEntry;
+                    const borderColor = entry?.slotType === 'revision' ? '#0ea5e9' : '#16a34a';
+                    return (
+                      <td key={`${day.date}-${period._id}`} colSpan={range.span} className="tt-slot !table-cell" style={{ borderTop: `2px solid ${borderColor}` }}>
+                        <div className="flex h-full w-full flex-col items-center justify-center text-center leading-none">
+                          <p className="tt-slot-subject !text-[9px] truncate w-full">{entry?.paperName || entry?.subject?.name || (entry?.slotType === 'revision' ? 'Revision' : 'Exam')}</p>
+                          <p className="tt-slot-teacher !text-[7px] truncate w-full opacity-70">{entry?.slotType === 'revision' ? 'Revision' : 'Exam'}</p>
+                          <span className="tt-slot-class !text-[7px] truncate w-full">
+                            {entry?.period?.name}{entry?.endPeriod && String(entry.period?._id) !== String(entry.endPeriod?._id) ? ` - ${entry.endPeriod.name}` : ''}
+                          </span>
+                        </div>
+                      </td>
+                    );
+                  }
+
+                  return (
+                    <td key={`${day.date}-${period._id}`} className="tt-slot tt-slot-empty !table-cell">
+                      <div className="flex h-full w-full items-center justify-center text-[8px] font-bold uppercase tracking-tight text-slate-300">
+                        -
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function PortalStudentProfilePage({ viewerLabel = 'Student Profile' }) {
   const { data, loading } = usePortalData('/portal/overview', null);
@@ -589,6 +636,19 @@ export function PortalExamsPage() {
   const [reportLoading, setReportLoading] = useState(false);
 
   useEffect(() => {
+    if (!data?.exams?.length) {
+      setSelectedExamId('');
+      return;
+    }
+
+    setSelectedExamId(current =>
+      data.exams.some(item => String(item._id) === String(current))
+        ? current
+        : String(data.exams[0]._id)
+    );
+  }, [data]);
+
+  useEffect(() => {
     if (!selectedExamId) {
       setReport(null);
       return;
@@ -606,118 +666,71 @@ export function PortalExamsPage() {
 
   if (loading) return <LoadingState label="Loading exams and marks..." />;
 
-  const { student, exams = [], calendarByExam = {} } = data || {};
+  const { student, exams = [], calendarByExam = {}, periods = [] } = data || {};
   const activeExamId = selectedExamId || exams[0]?._id || '';
   const visibleCalendar = calendarByExam?.[activeExamId] || [];
+  const selectedExam = exams.find(item => String(item._id) === String(activeExamId));
 
   return (
     <div className="space-y-6">
       <ModuleHeader eyebrow="Assessments" title="Exams and Report Cards" subtitle="Exam schedule and published marks for the linked student." />
       <StudentContextCard student={student} />
-      <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-        <DataCard title="Published Exams">
-          {exams.length === 0 ? (
-            <EmptyState title="No published exams" description="Published exams and report availability will appear here." />
-          ) : (
-            <div className="space-y-4">
-              {exams.map(item => (
-                <button
-                  type="button"
-                  key={item._id}
-                  onClick={() => setSelectedExamId(item._id)}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${selectedExamId === item._id ? 'border-primary-600 bg-primary-50' : 'border-slate-200 bg-slate-50 hover:border-primary-300'}`}
+      {exams.length === 0 ? (
+        <EmptyState title="No published exams" description="Published exams and report availability will appear here." />
+      ) : (
+        <>
+          <DataCard title="Exam Selection">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Selected Exam</p>
+                <h3 className="mt-2 text-xl font-bold text-slate-900">{selectedExam?.name || 'Select exam'}</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {selectedExam?.examType?.replace(/_/g, ' ') || 'Exam'} • {formatIndianDate(selectedExam?.startDate) || 'Date pending'}
+                </p>
+                {selectedExam?.summary ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <SmallStat label="Percentage" value={`${selectedExam.summary.percentage}%`} />
+                    <SmallStat label="Result" value={selectedExam.summary.result} />
+                    <SmallStat label="Subjects" value={selectedExam.summary.subjects} />
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-slate-500">Report summary will appear here after marks are published.</p>
+                )}
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <label className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Exam</label>
+                <select
+                  className="input mt-3"
+                  value={selectedExamId}
+                  onChange={event => setSelectedExamId(event.target.value)}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-bold text-slate-900">{item.name}</p>
-                      <p className="text-sm text-slate-500">{item.examType?.replace(/_/g, ' ')} • {formatIndianDate(item.startDate) || 'Date pending'}</p>
-                    </div>
-                    <StatusPill status={item.reportReady ? 'ready' : 'pending'} />
-                  </div>
-                  {item.summary ? (
-                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                      <SmallStat label="Percentage" value={`${item.summary.percentage}%`} />
-                      <SmallStat label="Result" value={item.summary.result} />
-                      <SmallStat label="Subjects" value={item.summary.subjects} />
-                    </div>
-                  ) : null}
-                </button>
-              ))}
+                  {exams.map(item => (
+                    <option key={item._id} value={item._id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-3 text-xs text-slate-500">
+                  Choose an exam to view its timetable and report-card preview.
+                </p>
+              </div>
             </div>
-          )}
-        </DataCard>
-        <DataCard title="Exam Timetable">
-          {visibleCalendar.length === 0 ? (
-            <EmptyState title="No timetable published" description="Exam slots for this class will show here once published." />
-          ) : (
-            <div className="space-y-4">
-              {visibleCalendar.map(day => {
-                const style = EXAM_CALENDAR_STYLES[day.status] || EXAM_CALENDAR_STYLES.no_exam;
-                return (
-                  <div key={day.date} className={`rounded-2xl border p-4 ${style.card}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">{day.weekday}</p>
-                        <p className="mt-1 text-lg font-bold text-slate-900">{formatIndianDate(day.date)}</p>
-                      </div>
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] ${style.badge}`}>
-                        {style.label}
-                      </span>
-                    </div>
+          </DataCard>
 
-                    {day.isHoliday ? (
-                      <p className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-sm font-medium text-rose-700">
-                        {day.holidayReason || 'Holiday'}
-                      </p>
-                    ) : null}
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {day.slots?.map(slot => (
-                        <div key={slot.key} className={`rounded-2xl border p-3 ${(EXAM_CALENDAR_STYLES[slot.status] || EXAM_CALENDAR_STYLES.no_exam).card}`}>
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{slot.label}</p>
-                          {slot.entry?.slotType === 'exam' ? (
-                            <>
-                              <p className="mt-2 font-bold text-slate-900">{slot.entry.paperName || slot.entry.subject?.name || 'Subject'}</p>
-                              <p className="mt-1 text-sm text-slate-500">{[slot.entry.startTime, slot.entry.endTime].filter(Boolean).join(' - ') || 'Time pending'}</p>
-                              {slot.entry.componentSubjects?.length ? (
-                                <p className="mt-1 text-xs text-slate-500">{slot.entry.componentSubjects.map(subject => subject?.name).filter(Boolean).join(', ')}</p>
-                              ) : null}
-                              {slot.entry.hall ? <p className="mt-1 text-xs text-slate-500">Hall: {slot.entry.hall}</p> : null}
-                            </>
-                          ) : slot.entry?.slotType === 'revision' ? (
-                            <>
-                              <p className="mt-2 font-bold text-slate-900">Revision</p>
-                              <p className="mt-1 text-sm text-slate-500">{[slot.entry.startTime, slot.entry.endTime].filter(Boolean).join(' - ') || 'Time pending'}</p>
-                              {slot.entry.note ? <p className="mt-1 text-xs text-slate-500">{slot.entry.note}</p> : null}
-                            </>
-                          ) : slot.entry?.slotType === 'holiday' ? (
-                            <p className="mt-2 text-sm font-semibold text-rose-700">{slot.entry.note || 'Holiday'}</p>
-                          ) : slot.entry?.slotType === 'no_session' ? (
-                            <p className="mt-2 text-sm font-semibold text-slate-700">{slot.entry.note || 'No session'}</p>
-                          ) : (
-                            <p className="mt-2 text-sm text-slate-600">
-                              {slot.status === 'sunday'
-                                ? 'Sunday break'
-                                : slot.status === 'holiday'
-                                  ? (slot.note || 'Holiday')
-                                  : 'No slot scheduled'}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </DataCard>
-      </div>
+          <DataCard title="Exam Timetable">
+            {visibleCalendar.length === 0 ? (
+              <EmptyState title="No timetable published" description="Exam slots for this class will show here once published." />
+            ) : (
+              <PortalExamTimetableGrid calendarDays={visibleCalendar} periods={periods} />
+            )}
+          </DataCard>
+        </>
+      )}
       <DataCard title="Report Card Preview">
         {reportLoading ? (
           <LoadingState label="Loading report card..." />
         ) : !selectedExamId ? (
-          <EmptyState title="Select an exam" description="Choose an exam from the list above to preview marks and overall result." />
+          <EmptyState title="Select an exam" description="Choose an exam from the dropdown above to preview marks and overall result." />
         ) : !report ? (
           <EmptyState title="Report card not available" description="Marks may not be published yet for the selected exam." />
         ) : (

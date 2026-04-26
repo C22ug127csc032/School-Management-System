@@ -2,6 +2,7 @@ import { Leave, Outpass, Circular, Homework, Exam, ExamSchedule, Mark } from '..
 import { Book, BookIssue, Inventory, InventoryTxn, Expense } from '../models/Operations.model.js';
 import Student from '../models/Student.model.js';
 import Teacher from '../models/Teacher.model.js';
+import User from '../models/User.model.js';
 import ClassModel from '../models/Class.model.js';
 import ClassSubject from '../models/ClassSubject.model.js';
 import Subject from '../models/Subject.model.js';
@@ -240,14 +241,40 @@ const buildAssignmentQuery = (teacherIds, academicYear, classId, subjectId) => (
   ...(subjectId ? { subject: subjectId } : {}),
 });
 
+const getRelatedSubjectIds = async subjectId => {
+  if (!subjectId) return [];
+
+  const subject = await Subject.findById(subjectId).select('subjectRole parentSubject');
+  if (!subject) return [subjectId];
+
+  if (subject.subjectRole === 'main') {
+    const childIds = await Subject.find({ parentSubject: subject._id, isActive: true }).distinct('_id');
+    return [...new Set([String(subject._id), ...childIds.map(String)])];
+  }
+
+  if (subject.subjectRole === 'sub' && subject.parentSubject) {
+    const siblingIds = await Subject.find({ parentSubject: subject.parentSubject, isActive: true }).distinct('_id');
+    return [...new Set([String(subject.parentSubject), String(subject._id), ...siblingIds.map(String)])];
+  }
+
+  return [String(subject._id)];
+};
+
 const findScopedTeachingAssignment = async (req, academicYear, classId, subjectId) => {
   if (!isTeachingRole(req.user.role)) return null;
 
   const linkedTeacherIds = await getLinkedTeacherIds(req);
   if (!linkedTeacherIds.length) return null;
+  const relatedSubjectIds = await getRelatedSubjectIds(subjectId);
 
   const directAssignment = await ClassSubject.findOne(
-    buildAssignmentQuery(linkedTeacherIds, academicYear, classId, subjectId)
+    {
+      teacher: { $in: linkedTeacherIds },
+      academicYear,
+      isActive: true,
+      ...(classId ? { class: classId } : {}),
+      ...(relatedSubjectIds.length ? { subject: { $in: relatedSubjectIds } } : {}),
+    }
   );
   if (directAssignment) return directAssignment;
 
@@ -969,11 +996,39 @@ export const getMarks = async (req, res) => {
     if (isTeachingRole(req.user.role) && req.user.teacherRef) {
       const canAccess = await canManageExamClass(req, ay, classId, subjectId);
       if (!canAccess) return res.json({ success: true, data: [] });
+
+      const teacher = await getTeacherScope(req);
+      const managesAsClassTeacher = String(teacher?.classTeacherOf?._id || teacher?.classTeacherOf || '') === String(classId || '');
+      if (!managesAsClassTeacher) {
+        const linkedTeacherIds = await getLinkedTeacherIds(req);
+        const assignments = await ClassSubject.find(buildAssignmentQuery(linkedTeacherIds, ay, classId, subjectId))
+          .populate({
+            path: 'subject',
+            select: 'subjectRole parentSubject',
+            populate: { path: 'parentSubject', select: '_id' },
+          })
+          .select('subject');
+
+        const allowedSubjectIds = [...new Set(assignments.map(item => {
+          const assignmentSubject = item.subject;
+          if (!assignmentSubject) return '';
+          if (assignmentSubject.subjectRole === 'sub' && assignmentSubject.parentSubject?._id) return String(assignmentSubject.parentSubject._id);
+          return String(assignmentSubject._id || assignmentSubject);
+        }).filter(Boolean))];
+
+        if (!allowedSubjectIds.length) return res.json({ success: true, data: [] });
+        query.subject = subjectId
+          ? { $in: allowedSubjectIds.filter(item => item === String(subjectId)) }
+          : { $in: allowedSubjectIds };
+      }
     }
 
     const marks = await Mark.find(query)
       .populate('student','firstName lastName admissionNo rollNo')
-      .populate('subject','name code').sort({ 'student.firstName': 1 });
+      .populate('subject','name code')
+      .populate('enteredBy', 'name role')
+      .populate('publishedBy', 'name role')
+      .sort({ 'student.firstName': 1, createdAt: 1 });
     res.json({ success: true, data: marks });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -981,6 +1036,8 @@ export const getMarks = async (req, res) => {
 export const saveMarks = async (req, res) => {
   try {
     const { marks } = req.body; // array of marks rows with theory/internal components
+    const isTeacherEntry = isTeachingRole(req.user.role);
+    const workflowStatus = isTeacherEntry ? 'submitted_to_class_teacher' : 'published';
     const results = [];
     for (const m of marks) {
       if (isTeachingRole(req.user.role) && req.user.teacherRef) {
@@ -1014,6 +1071,19 @@ export const saveMarks = async (req, res) => {
       const maxMarks = theoryMaxMarks + assessmentMaxMarks;
       const grade = calcGrade(marksObtained, maxMarks);
       const isPassed = !m.isAbsent && marksObtained >= (m.passMarks || 35);
+      const existingMark = await Mark.findOne({ exam: m.examId, student: m.studentId, subject: m.subjectId }).select('enteredBy workflowStatus');
+      if (
+        existingMark &&
+        isTeacherEntry &&
+        String(existingMark.enteredBy || '') !== String(req.user._id)
+      ) {
+        const enteredByUser = await User.findById(existingMark.enteredBy).select('name');
+        return res.status(409).json({
+          success: false,
+          message: 'This combined subject mark was already submitted by another related subject teacher.',
+          enteredBy: enteredByUser?.name || '',
+        });
+      }
       const doc = await Mark.findOneAndUpdate(
         { exam: m.examId, student: m.studentId, subject: m.subjectId },
         {
@@ -1030,14 +1100,107 @@ export const saveMarks = async (req, res) => {
           maxMarks,
           grade,
           isPassed,
+          workflowStatus,
           enteredBy: req.user._id,
+          publishedBy: workflowStatus === 'published' ? req.user._id : null,
+          publishedAt: workflowStatus === 'published' ? new Date() : null,
         },
         { upsert: true, new: true },
       );
       results.push(doc);
     }
-    res.json({ success: true, data: results, message: `${results.length} marks saved.` });
+    res.json({
+      success: true,
+      data: results,
+      message: isTeacherEntry
+        ? `${results.length} subject mark(s) submitted to the class teacher.`
+        : `${results.length} mark(s) saved and published.`,
+    });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+export const publishMarks = async (req, res) => {
+  try {
+    const { examId, classId, studentId, academicYear } = req.body;
+    const ay = resolveAcademicYear(academicYear);
+
+    if (!examId || !classId || !studentId) {
+      return res.status(400).json({ success: false, message: 'examId, classId, and studentId are required.' });
+    }
+
+    const teacherScope = await getMergedTeacherScope(req);
+    const isFullAdmin = ['super_admin', 'admin', 'principal'].includes(req.user.role);
+    const managesClass = isFullAdmin || teacherScope?.classTeacherOfIds?.includes(String(classId || ''));
+    if (!managesClass) {
+      return res.status(403).json({ success: false, message: 'Only the class teacher or admin can publish marks for this class.' });
+    }
+
+    const requiredAssignments = await ClassSubject.find({
+      class: classId,
+      academicYear: ay,
+      isActive: true,
+    }).populate({
+      path: 'subject',
+      select: 'subjectRole parentSubject',
+      populate: { path: 'parentSubject', select: '_id' },
+    });
+
+    const requiredSubjectIds = [...new Set(requiredAssignments.map(item => {
+      const subject = item.subject;
+      if (!subject) return '';
+      if (subject.subjectRole === 'sub' && subject.parentSubject?._id) return String(subject.parentSubject._id);
+      return String(subject._id || subject);
+    }).filter(Boolean))];
+    if (!requiredSubjectIds.length) {
+      return res.status(400).json({ success: false, message: 'No active subjects are assigned to this class.' });
+    }
+
+    const marks = await Mark.find({
+      exam: examId,
+      class: classId,
+      student: studentId,
+      subject: { $in: requiredSubjectIds },
+    });
+
+    const marksBySubject = new Map(marks.map(mark => [String(mark.subject), mark]));
+    const missingSubjectIds = requiredSubjectIds.filter(subjectId => !marksBySubject.has(subjectId));
+    if (missingSubjectIds.length) {
+      return res.status(400).json({ success: false, message: 'All subject teachers must submit marks before publishing to the student and parent portals.' });
+    }
+
+    await Mark.updateMany(
+      {
+        exam: examId,
+        class: classId,
+        student: studentId,
+        subject: { $in: requiredSubjectIds },
+      },
+      {
+        $set: {
+          workflowStatus: 'published',
+          publishedBy: req.user._id,
+          publishedAt: new Date(),
+        },
+      },
+    );
+
+    const publishedMarks = await Mark.find({
+      exam: examId,
+      class: classId,
+      student: studentId,
+      subject: { $in: requiredSubjectIds },
+    })
+      .populate('subject', 'name code')
+      .sort({ createdAt: 1 });
+
+    res.json({
+      success: true,
+      data: publishedMarks,
+      message: 'Marks published successfully to the student and parent portals.',
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 };
 
 export const deleteMarks = async (req, res) => {
@@ -1372,7 +1535,7 @@ export default {
   getOutpasses, createOutpass, updateOutpassStatus,
   getCirculars, createCircular, deleteCircular,
   getHomework, createHomework, deleteHomework,
-  getExams, createExam, updateExam, deleteExam, getExamSchedule, createExamSchedule, announceExamSchedule, getMarks, saveMarks, deleteMarks, getReportCard,
+  getExams, createExam, updateExam, deleteExam, getExamSchedule, createExamSchedule, announceExamSchedule, getMarks, saveMarks, publishMarks, deleteMarks, getReportCard,
   getBooks, createBook, updateBook, issueBook, returnBook, getIssues,
   getInventory, createInventoryItem, recordInventoryTxn,
   getExpenses, createExpense,

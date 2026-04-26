@@ -172,7 +172,14 @@ const marksSchema = new mongoose.Schema({
   isPassed:     { type: Boolean },
   isAbsent:     { type: Boolean, default: false },
   remarks:      { type: String },
+  workflowStatus: {
+    type: String,
+    enum: ['draft', 'submitted_to_class_teacher', 'published'],
+    default: 'draft',
+  },
   enteredBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  publishedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  publishedAt:  { type: Date },
 }, { timestamps: true });
 
 marksSchema.index({ exam: 1, student: 1, subject: 1 }, { unique: true });

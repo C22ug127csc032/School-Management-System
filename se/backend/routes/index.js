@@ -175,6 +175,7 @@ examRoutes.post('/announce',  superAdminOnly, miscCtrl.announceExamSchedule);
 examRoutes.get('/marks',      allStaff, miscCtrl.getMarks);
 examRoutes.get('/report-card', allStaff, miscCtrl.getReportCard);
 examRoutes.post('/marks',     teachingStaff, miscCtrl.saveMarks);
+examRoutes.post('/marks/publish', teacherUp, miscCtrl.publishMarks);
 examRoutes.delete('/marks',   teachingStaff, miscCtrl.deleteMarks);
 
 // ── Library ───────────────────────────────────────────────────────────────────
